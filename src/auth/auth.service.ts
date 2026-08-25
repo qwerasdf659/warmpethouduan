@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { ClockService } from '../common/clock/clock.service';
 import { User } from '../entities/user.entity';
 import { WechatService } from '../wechat/wechat.service';
 
@@ -15,6 +16,7 @@ export class AuthService {
   constructor(
     private readonly wechat: WechatService,
     private readonly jwt: JwtService,
+    private readonly clock: ClockService,
     @InjectRepository(User)
     private readonly users: Repository<User>,
   ) {}
@@ -26,6 +28,18 @@ export class AuthService {
   async login(code: string): Promise<LoginResult> {
     const session = await this.wechat.code2Session(code);
     const user = await this.findOrCreateUser(session.openid, session.unionid);
+
+    // 封禁账号拒绝签发新令牌（服务端权威）。
+    if (user.status === 'banned') {
+      throw new ForbiddenException(
+        user.bannedReason
+          ? `账号已被封禁：${user.bannedReason}`
+          : '账号已被封禁',
+      );
+    }
+
+    // 刷新离线结算基准：elapsed = min(客户端申报, now − last_seen_at)
+    await this.users.update({ id: user.id }, { lastSeenAt: this.clock.now() });
 
     const token = await this.jwt.signAsync({
       sub: user.id,

@@ -1,0 +1,38 @@
+{
+  "name": "warmpet-admin-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "warmpet 运营管理后台（Ant Design Pro v6 · Umi Max）",
+  "scripts": {
+    "dev": "max dev",
+    "build": "max build",
+    "setup": "max setup",
+    "postinstall": "max setup",
+    "format": "biome format --write .",
+    "lint": "biome check ."
+  },
+  "dependencies": {
+    "@ant-design/icons": "^5.6.1",
+    "@ant-design/pro-components": "^2.8.10",
+    "@tanstack/react-query": "^5.62.0",
+    "@umijs/max": "^4.7.7",
+    "antd": "^5.29.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "typescript": "^5.7.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "antd": "^5.29.3",
+      "@ant-design/pro-components": "^2.8.10"
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

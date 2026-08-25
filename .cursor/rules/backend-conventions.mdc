@@ -1,0 +1,32 @@
+---
+description: NestJS/TypeORM 后端编码约定
+globs: src/**/*.ts
+alwaysApply: false
+---
+
+# 后端编码约定
+
+## 模块与目录
+- 基础设施在 `common/`（clock/lock/idempotency/filters/decorators），全局 `CommonModule` 导出。
+- Redis 客户端从 `REDIS_CLIENT`（`redis/redis.module.ts`，全局）注入，勿各处 new Redis。
+- 业务按域分模块：`auth/`、`pet/`、`wechat/`、后续 `economy/`。
+
+## 实体与数据
+- 列名 snake_case（`@Column({ name: 'last_seen_at' })`），时间用 `timestamptz`（存 UTC）。
+- 主键 `@PrimaryGeneratedColumn('increment', { type: 'bigint' })`；bigint 在 pg 下是 **string**，业务层按 string 处理。
+- 时间基准存 `last_seen_at`，读操作按 `ClockService.now()` 算衰减、通常**不落库**；写操作才更新时间戳。
+
+## 写接口范式（喂食/领奖等）
+```ts
+@Post('feed')
+@Idempotent()
+@UseInterceptors(IdempotencyInterceptor)
+feed(@CurrentUser() user: AuthUser, @Body() dto: FeedDto) {
+  return this.service.feed(user.userId); // service 内用 lock.withLock('pet:'+userId, ...)
+}
+```
+
+## 其它
+- DTO 用 class-validator；全局 `ValidationPipe({ whitelist, forbidNonWhitelisted, transform })` 已开。
+- 异常统一走 `AllExceptionsFilter`，输出 `{ code, message }`；日志**不打印密钥/敏感值**。
+- 装饰器签名里的类型（如 `AuthUser`）用 `import type` 引入（isolatedModules）。

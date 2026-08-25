@@ -1,0 +1,27 @@
+---
+description: warmpet-api 项目总览与架构铁律（微信小游戏宠物养成后端）
+alwaysApply: true
+---
+
+# warmpet-api 项目总览
+
+微信小游戏「宠物养成」后端。代码根 = 本目录（Sealos DevBox 的 `/home/devbox/project`）。
+
+## 技术栈
+- NestJS 11 + TypeScript 5 + Node.js 22
+- PostgreSQL 16（Sealos **托管**，核心持久数据）+ TypeORM（`synchronize:false`，走迁移）
+- Redis 7（DevBox **本机**，PM2 守护 + AOF；客户端 `ioredis`；统一 `REDIS_URL`）
+- 鉴权 `@nestjs/jwt`；配置 `@nestjs/config` + Joi 校验；HTTP `@nestjs/axios`
+
+## 架构铁律（改代码必须遵守）
+1. **服务端权威**：时间/收益/衰减一律用 `ClockService`，禁用客户端上报的时间与数值。
+2. **幂等**：写接口带 `bizId`，用 `@Idempotent()` + `IdempotencyInterceptor`（Redis）防重复。
+3. **并发安全**：同一玩家的写操作用 `LockService.withLock('pet:'+userId, ...)` 串行化。
+4. **软失败不死亡**：非关键依赖失败降级，不阻断主链路。
+
+## 关键事实
+- 应用监听 **8080**（对齐 DevBox 暴露端口），`main.ts` 绑 `0.0.0.0`。
+- 部署：**PM2 常驻**（`ecosystem.config.js` 守护 app + 本机 redis），非「打包镜像」。
+- 密钥只在 `.env` / `secrets/`，已 `.gitignore`，**绝不提交**；新增密钥同步更新 `.env.example`（占位）。
+- 表结构改动必须新增迁移：`npm run migration:generate -- src/migrations/Xxx` → `migration:run`，禁用 synchronize。
+- 项目文档在仓库外的 `../docs/`（08 技术路线 / 09 搭建 / 10 MVP 方案）。

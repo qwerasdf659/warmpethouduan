@@ -47,9 +47,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
 
     const key = `idem:${userId}:${bizId}`;
 
-    return from(
-      this.redis.set(key, PENDING, 'PX', PENDING_TTL_MS, 'NX'),
-    ).pipe(
+    return from(this.redis.set(key, PENDING, 'PX', PENDING_TTL_MS, 'NX')).pipe(
       switchMap((acquired) => {
         if (acquired === 'OK') {
           return next.handle().pipe(

@@ -18,6 +18,13 @@ export const envValidationSchema = Joi.object({
   DB_PASSWORD: Joi.string().required(),
   DB_NAME: Joi.string().required(),
   DB_EXTERNAL_URL: Joi.string().allow('').optional(),
+  // 连接池 / keepAlive（均可选，缺省走 configuration.ts 默认值）
+  DB_POOL_MAX: Joi.number().min(1).default(20),
+  DB_POOL_MIN: Joi.number().min(0).default(5),
+  DB_POOL_ACQUIRE_MS: Joi.number().min(1000).default(10000),
+  DB_POOL_IDLE_MS: Joi.number().min(1000).default(60000),
+  DB_KEEPALIVE: Joi.boolean().truthy('true').falsy('false').default(true),
+  DB_KEEPALIVE_DELAY_MS: Joi.number().min(0).default(10000),
 
   // Redis（本机）
   REDIS_URL: Joi.string().required(),
@@ -25,6 +32,12 @@ export const envValidationSchema = Joi.object({
   // JWT
   JWT_SECRET: Joi.string().min(16).required(),
   JWT_EXPIRES_IN: Joi.string().default('7d'),
+
+  // 后台管理端
+  ADMIN_JWT_EXPIRES_IN: Joi.string().default('1d'),
+  ADMIN_INIT_USERNAME: Joi.string().default('admin'),
+  ADMIN_INIT_PASSWORD: Joi.string().allow('').default(''),
+  ADMIN_CORS_ORIGINS: Joi.string().allow('').default(''),
 
   // 微信小游戏
   WECHAT_APPID: Joi.string().required(),

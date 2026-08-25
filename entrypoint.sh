@@ -1,22 +1,26 @@
 #!/bin/bash
 # warmpet-api 启动入口
-# 部署模型：PM2 常驻 DevBox（生产由 pm2 start ecosystem.config.js 拉起 app + 本机 redis）。
-# 本脚本用于 DevBox「运行」按钮 / 手动启动的兜底路径。
+# 部署模型：PM2 常驻 DevBox（守护 Nest 应用 + 本机 Redis）。
+# 生产/发布：用 pm2-runtime 前台托管整个 ecosystem（容器主进程，崩溃自动重启）。
 
 set -e
 
 app_env=${1:-development}
+cd "$(dirname "$0")"
 
 if [ "$app_env" = "production" ] || [ "$app_env" = "prod" ]; then
     echo "Production environment detected"
-    # 生产：确保已构建，运行编译产物
+    # 确保已构建
     if [ ! -f "dist/main.js" ]; then
         echo "dist/main.js 不存在，先执行构建..."
         npm run build
     fi
-    NODE_ENV=production node dist/main.js
+    # pm2-runtime 前台运行：作为容器主进程守护 app + 本机 redis
+    export NODE_ENV=production
+    exec pm2-runtime start ecosystem.config.js
 else
     echo "Development environment detected"
-    # 开发：热重载（需另行启动本机 Redis：pm2 start ecosystem.config.js --only redis-server）
+    # 开发：先用 PM2 起本机 Redis（幂等，已在则跳过），应用用热重载
+    pm2 start ecosystem.config.js --only redis-server >/dev/null 2>&1 || true
     NODE_ENV=development npm run start:dev
 fi

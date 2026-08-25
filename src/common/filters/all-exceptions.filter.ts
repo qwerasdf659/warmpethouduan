@@ -30,7 +30,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message =
         typeof body === 'string'
           ? body
-          : ((body as Record<string, unknown>).message as string) ?? message;
+          : (((body as Record<string, unknown>).message as string) ?? message);
     } else if (exception instanceof Error) {
       this.logger.error(
         `${req.method} ${req.url} -> ${exception.message}`,

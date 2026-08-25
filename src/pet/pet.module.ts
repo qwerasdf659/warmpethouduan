@@ -1,13 +1,21 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
+import { EconomyModule } from '../economy/economy.module';
 import { Pet } from '../entities/pet.entity';
+import { User } from '../entities/user.entity';
+import { HomeStat } from '../entities/home-stat.entity';
 import { PetController } from './pet.controller';
 import { PetService } from './pet.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Pet]), AuthModule],
+  imports: [
+    TypeOrmModule.forFeature([Pet, User, HomeStat]),
+    AuthModule,
+    EconomyModule,
+  ],
   controllers: [PetController],
   providers: [PetService],
+  exports: [PetService],
 })
 export class PetModule {}
