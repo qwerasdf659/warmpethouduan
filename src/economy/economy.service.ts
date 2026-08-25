@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
 } from '@nestjs/common';
@@ -28,6 +29,16 @@ export const LEDGER_REASONS = [
   'compensation', // 补偿
 ] as const;
 export type LedgerReason = (typeof LEDGER_REASONS)[number];
+
+/**
+ * 豁免封禁校验的原因。运营需要在封号后仍能结算补偿、追回违规收益，
+ * 若一并拦死，被封账号将无法做任何账务处理。
+ */
+const BAN_EXEMPT_REASONS: ReadonlySet<LedgerReason> = new Set([
+  'admin_grant',
+  'admin_deduct',
+  'compensation',
+]);
 
 export interface WalletView {
   gameCoin: number;
@@ -119,22 +130,32 @@ export class EconomyService {
     }
     if (!bizId) throw new BadRequestException('缺少幂等参数 bizId');
 
+    // 资金兜底：控制器的 PlayerStatusGuard 管准入，这里保证任何绕过路径
+    // （内部服务调用、将来新增的控制器忘挂守卫）都动不了封禁账号的钱。
+    const banExempt = BAN_EXEMPT_REASONS.has(reason);
+    const banClause = banExempt
+      ? ''
+      : ` AND EXISTS (SELECT 1 FROM "user" u
+                       WHERE u."id" = "wallet"."user_id" AND u."status" <> 'banned')`;
+
     try {
       return await this.dataSource.transaction(async (m) => {
         await this.ensureWallet(m, userId);
 
-        // 单语句完成「校验 + 变更」，并发下无需锁；余额不足 → 影响 0 行
+        // 单语句完成「校验 + 变更」，并发下无需锁；余额不足或账号封禁 → 影响 0 行
         const rows = this.rowsOf<WalletRow>(
           await m.query(
             `UPDATE "wallet"
                 SET "${column}" = "${column}" + $2, "updated_at" = now()
-              WHERE "user_id" = $1 AND "${column}" + $2 >= 0
+              WHERE "user_id" = $1 AND "${column}" + $2 >= 0${banClause}
           RETURNING "game_coin", "marketing_point"`,
             [userId, delta],
           ),
         );
 
         if (rows.length === 0) {
+          // 0 行有两种成因，仅在失败路径多查一次以给出正确报错，不拖慢正常路径
+          if (!banExempt) await this.assertNotBanned(m, userId);
           throw new BadRequestException('余额不足');
         }
 
@@ -246,6 +267,26 @@ export class EconomyService {
   }
 
   // ---------------------------------------------------------------- 内部
+
+  /** 仅在记账失败后调用，用于区分「余额不足」与「账号封禁」两种 0 行成因。 */
+  private async assertNotBanned(
+    m: EntityManager,
+    userId: string,
+  ): Promise<void> {
+    const rows = this.rowsOf<{ status: string; banned_reason: string | null }>(
+      await m.query(
+        `SELECT "status", "banned_reason" FROM "user" WHERE "id" = $1`,
+        [userId],
+      ),
+    );
+    if (rows[0]?.status === 'banned') {
+      throw new ForbiddenException(
+        rows[0].banned_reason
+          ? `账号已被封禁：${rows[0].banned_reason}`
+          : '账号已被封禁',
+      );
+    }
+  }
 
   private ensureWallet(m: EntityManager, userId: string): Promise<unknown> {
     return m.query(

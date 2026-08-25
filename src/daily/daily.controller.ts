@@ -11,11 +11,12 @@ import { Idempotent } from '../common/idempotency/idempotent.decorator';
 import { IdempotencyInterceptor } from '../common/idempotency/idempotency.interceptor';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { AuthUser } from '../auth/jwt-auth.guard';
+import { PlayerStatusGuard } from '../auth/player-status.guard';
 import { CheckinDto, ClaimTaskDto } from './dto/daily.dto';
 import { DailyService } from './daily.service';
 
 @Controller('daily')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PlayerStatusGuard)
 export class DailyController {
   constructor(private readonly daily: DailyService) {}
 
@@ -28,14 +29,14 @@ export class DailyController {
   @Post('checkin')
   @Idempotent()
   @UseInterceptors(IdempotencyInterceptor)
-  checkin(@CurrentUser() user: AuthUser, @Body() dto: CheckinDto) {
-    return this.daily.checkin(user.userId, dto.bizId);
+  checkin(@CurrentUser() user: AuthUser, @Body() _dto: CheckinDto) {
+    return this.daily.checkin(user.userId);
   }
 
   @Post('task/claim')
   @Idempotent()
   @UseInterceptors(IdempotencyInterceptor)
   claim(@CurrentUser() user: AuthUser, @Body() dto: ClaimTaskDto) {
-    return this.daily.claimTask(user.userId, dto.taskKey, dto.bizId);
+    return this.daily.claimTask(user.userId, dto.taskKey);
   }
 }

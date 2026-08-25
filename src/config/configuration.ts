@@ -50,5 +50,13 @@ export default () => ({
   wechat: {
     appid: process.env.WECHAT_APPID,
     secret: process.env.WECHAT_SECRET,
+    /**
+     * 假登录开关。生产环境**永远为 false**：即便 env 误配，这里也再兜一层，
+     * 与 env.validation 的启动期拒绝构成双保险（配置校验可能被 unknown 变量绕过，
+     * 但这一层是代码硬约束）。
+     */
+    mockLogin:
+      (process.env.WECHAT_MOCK_LOGIN ?? 'false') === 'true' &&
+      (process.env.NODE_ENV ?? 'development') !== 'production',
   },
 });

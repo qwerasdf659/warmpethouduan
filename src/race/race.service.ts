@@ -7,17 +7,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AdTokenService } from '../boost/ad-token.service';
 import { ClockService } from '../common/clock/clock.service';
+import { GameConfigService } from '../config/game-config.service';
 import { EconomyService } from '../economy/economy.service';
 import { PetService } from '../pet/pet.service';
 import { RaceRecord } from '../entities/race-record.entity';
-import {
-  OPPONENT_COUNT,
-  RACE_REVIVE,
-  RACE_TRACKS,
-  RaceTrack,
-  getTrack,
-  rewardOfRank,
-} from './race.config';
+import { RaceTrack, getTrack, rewardOfRank } from './race.config';
 
 export interface RaceStartResult {
   raceId: string;
@@ -77,6 +71,7 @@ export class RaceService {
     private readonly economy: EconomyService,
     private readonly clock: ClockService,
     private readonly adToken: AdTokenService,
+    private readonly config: GameConfigService,
   ) {}
 
   /** 赛道列表（附玩家当前战力预览）。 */
@@ -113,7 +108,7 @@ export class RaceService {
       // 无宠：仅返回赛道，不阻断
       battle = null;
     }
-    return { tracks: RACE_TRACKS, battle };
+    return { tracks: await this.config.get('race.tracks'), battle };
   }
 
   /** 报名并跑一场：扣体力/门票 → 算名次 → 落 pending 记录。 */
@@ -123,7 +118,8 @@ export class RaceService {
     bizId: string,
     petId?: string,
   ): Promise<RaceStartResult> {
-    const track = getTrack(trackKey);
+    const cfg = await this.config.snapshot();
+    const track = getTrack(cfg['race.tracks'], trackKey);
     if (!track) throw new BadRequestException('未知赛道');
 
     // 先校验门票余额（避免扣了体力却付不起门票）
@@ -156,15 +152,16 @@ export class RaceService {
     // 服务端算定名次
     const power = this.powerOf(battle.speed, battle.endurance);
     const playerScore = Math.round(power * this.rand(0.9, 1.1));
+    const opponentCount = cfg['race.opponent_count'];
     const opponentScores: number[] = [];
-    for (let i = 0; i < OPPONENT_COUNT; i++) {
+    for (let i = 0; i < opponentCount; i++) {
       opponentScores.push(
         Math.round(power * track.difficulty * this.rand(0.8, 1.05)),
       );
     }
     const rank = 1 + opponentScores.filter((s) => s > playerScore).length;
-    const totalRacers = OPPONENT_COUNT + 1;
-    const rewardCoin = rewardOfRank(track, rank);
+    const totalRacers = opponentCount + 1;
+    const rewardCoin = rewardOfRank(track, rank, cfg['race.rank_factor']);
 
     const saved = await this.races.save(
       this.races.create({
@@ -306,24 +303,26 @@ export class RaceService {
 
   /**
    * 看广告复活重跑：对**未结算**的比赛按当前战力重掷名次，不再扣体力/门票。
-   * 限每场 `RACE_REVIVE.maxPerRace` 次——否则可反复重掷刷到第一名。
+   * 限每场 `race.revive.maxPerRace` 次——否则可反复重掷刷到第一名。
    */
   async revive(
     userId: string,
     raceId: string,
     adToken: string,
   ): Promise<RaceReviveResult> {
+    const cfg = await this.config.snapshot();
+    const revive = cfg['race.revive'];
     const race = await this.races.findOne({ where: { id: raceId, userId } });
     if (!race) throw new NotFoundException('赛跑记录不存在');
 
     if (race.status !== 'pending') {
       throw new BadRequestException('已结算的比赛不能复活重跑');
     }
-    if (race.reviveCount >= RACE_REVIVE.maxPerRace) {
+    if (race.reviveCount >= revive.maxPerRace) {
       throw new BadRequestException('本场复活机会已用完');
     }
 
-    const track = getTrack(race.trackKey);
+    const track = getTrack(cfg['race.tracks'], race.trackKey);
     if (!track) throw new BadRequestException('赛道配置已下线，无法重跑');
 
     await this.adToken.consume(userId, adToken, 'race_revive');
@@ -332,16 +331,16 @@ export class RaceService {
     const battle = await this.pet.getBattleStats(userId, race.petId);
     const power = this.powerOf(battle.speed, battle.endurance);
     const playerScore = Math.round(
-      power * RACE_REVIVE.scoreBonus * this.rand(0.9, 1.1),
+      power * revive.scoreBonus * this.rand(0.9, 1.1),
     );
     const opponentScores: number[] = [];
-    for (let i = 0; i < OPPONENT_COUNT; i++) {
+    for (let i = 0; i < cfg['race.opponent_count']; i++) {
       opponentScores.push(
         Math.round(power * track.difficulty * this.rand(0.8, 1.05)),
       );
     }
     const rank = 1 + opponentScores.filter((s) => s > playerScore).length;
-    const rewardCoin = rewardOfRank(track, rank);
+    const rewardCoin = rewardOfRank(track, rank, cfg['race.rank_factor']);
     const previousRank = race.rank;
 
     // 条件更新兜住并发重跑：只有 revive_count 仍是读到的值时才写入

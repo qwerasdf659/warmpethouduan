@@ -6,8 +6,9 @@ import {
   businessDayKey,
   secondsUntilNextBusinessDay,
 } from '../common/time/business-day';
+import { GameConfigService } from '../config/game-config.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
-import { AD_TOKEN, AdScene } from './boost.config';
+import { AdScene } from './boost.config';
 
 export interface AdTokenIssued {
   nonce: string;
@@ -38,35 +39,32 @@ return 1
 
   constructor(
     private readonly clock: ClockService,
+    private readonly config: GameConfigService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
   /** 签发一枚 scene 绑定的一次性凭证（受账号级每日上限约束）。 */
   async issue(userId: string, scene: AdScene): Promise<AdTokenIssued> {
+    const cfg = await this.config.get('boost.ad_token');
     const now = this.clock.now();
     const day = businessDayKey(now);
     const capKey = `adtoken:cap:${userId}:${day}:${scene}`;
 
     const used = parseInt((await this.redis.get(capKey)) ?? '0', 10);
-    if (used >= AD_TOKEN.dailyCapPerScene) {
+    if (used >= cfg.dailyCapPerScene) {
       throw new BadRequestException('今日该场景的广告次数已用尽');
     }
 
     const nonce = randomBytes(16).toString('hex');
-    await this.redis.set(
-      this.keyOf(userId, nonce),
-      scene,
-      'EX',
-      AD_TOKEN.ttlSec,
-    );
+    await this.redis.set(this.keyOf(userId, nonce), scene, 'EX', cfg.ttlSec);
     await this.redis.incr(capKey);
     await this.redis.expire(capKey, secondsUntilNextBusinessDay(now));
 
     return {
       nonce,
       scene,
-      expiresInSec: AD_TOKEN.ttlSec,
-      remaining: Math.max(0, AD_TOKEN.dailyCapPerScene - (used + 1)),
+      expiresInSec: cfg.ttlSec,
+      remaining: Math.max(0, cfg.dailyCapPerScene - (used + 1)),
     };
   }
 

@@ -4,15 +4,23 @@ import Redis from 'ioredis';
 import { Repository } from 'typeorm';
 import { ClockService } from '../common/clock/clock.service';
 import { LockService } from '../common/lock/lock.service';
-import {
-  businessDayKey,
-  isConsecutiveDay,
-  secondsUntilNextBusinessDay,
-} from '../common/time/business-day';
+import { businessDayKey, isConsecutiveDay } from '../common/time/business-day';
+import { GameConfigService } from '../config/game-config.service';
 import { EconomyService } from '../economy/economy.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { Daily } from '../entities/daily.entity';
-import { DAILY_TASKS, DailyTaskConfig, checkinRewardOf } from './daily.config';
+import {
+  CheckinConfig,
+  DailyTaskConfig,
+  DailyTaskSource,
+  checkinRewardOf,
+} from './daily.config';
+
+/** 一次请求内用到的签到配置快照，保证同一响应里预告与实发口径一致。 */
+interface DailyTuning {
+  checkin: CheckinConfig;
+  tasks: DailyTaskConfig[];
+}
 
 export interface DailyTaskView {
   key: string;
@@ -49,22 +57,34 @@ export class DailyService {
     private readonly clock: ClockService,
     private readonly lock: LockService,
     private readonly economy: EconomyService,
+    private readonly config: GameConfigService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
   /** 签到状态 + 任务列表（只读，不落库）。 */
   async getDaily(userId: string): Promise<DailyView> {
+    const tuning = await this.tuning();
     const now = this.clock.now();
     const day = businessDayKey(now);
     const row = await this.dailies.findOne({ where: { userId } });
-    return this.toView(row, day, await this.readProgress(userId, day, row));
+    return this.toView(
+      row,
+      day,
+      await this.readProgress(userId, day, row),
+      tuning,
+    );
   }
 
-  /** 每日签到：一天一次，按连签天数发放游戏币。 */
+  /**
+   * 每日签到：一天一次，按连签天数发放游戏币。
+   *
+   * 幂等键用服务端派生的 `daily:checkin:{day}` 而非客户端 bizId——
+   * 客户端换个 bizId 就能重复领奖的话，「一天一次」形同虚设。
+   */
   async checkin(
     userId: string,
-    bizId: string,
   ): Promise<{ daily: DailyView; gained: number; gameCoin: number }> {
+    const tuning = await this.tuning();
     return this.lock.withLock(`pet:${userId}`, async () => {
       const now = this.clock.now();
       const day = businessDayKey(now);
@@ -78,7 +98,7 @@ export class DailyService {
         row.lastCheckinDay && isConsecutiveDay(row.lastCheckinDay, day)
           ? row.streak + 1
           : 1;
-      const reward = checkinRewardOf(streak);
+      const reward = checkinRewardOf(streak, tuning.checkin);
 
       row.lastCheckinDay = day;
       row.streak = streak;
@@ -96,20 +116,23 @@ export class DailyService {
 
       const progress = await this.readProgress(userId, day, row);
       return {
-        daily: this.toView(row, day, progress),
+        daily: this.toView(row, day, progress, tuning),
         gained: reward,
         gameCoin: applied.wallet.gameCoin,
       };
     });
   }
 
-  /** 领取某项每日任务奖励（进度达标且未领取）。 */
+  /**
+   * 领取某项每日任务奖励（进度达标且未领取）。
+   * 同签到，幂等键由服务端按 `{day}:{taskKey}` 派生。
+   */
   async claimTask(
     userId: string,
     taskKey: string,
-    bizId: string,
   ): Promise<{ daily: DailyView; gained: number; gameCoin: number }> {
-    const cfg = DAILY_TASKS.find((t) => t.key === taskKey);
+    const tuning = await this.tuning();
+    const cfg = tuning.tasks.find((t) => t.key === taskKey);
     if (!cfg) throw new BadRequestException('未知任务');
 
     return this.lock.withLock(`pet:${userId}`, async () => {
@@ -145,7 +168,7 @@ export class DailyService {
       });
 
       return {
-        daily: this.toView(row, day, progress),
+        daily: this.toView(row, day, progress, tuning),
         gained: cfg.coin,
         gameCoin: applied.wallet.gameCoin,
       };
@@ -153,6 +176,11 @@ export class DailyService {
   }
 
   // ---------------------------------------------------------------- 内部
+
+  private async tuning(): Promise<DailyTuning> {
+    const cfg = await this.config.snapshot();
+    return { checkin: cfg['daily.checkin'], tasks: cfg['daily.tasks'] };
+  }
 
   private async ensureRow(userId: string): Promise<Daily> {
     const existing = await this.dailies.findOne({ where: { userId } });
@@ -179,7 +207,7 @@ export class DailyService {
     userId: string,
     day: string,
     row: Daily | null,
-  ): Promise<Record<DailyTaskConfig['source'], number>> {
+  ): Promise<Record<DailyTaskSource, number>> {
     const act = parseInt(
       (await this.redis.get(`act:${userId}:${day}`)) ?? '0',
       10,
@@ -195,7 +223,8 @@ export class DailyService {
   private toView(
     row: Daily | null,
     day: string,
-    progress: Record<DailyTaskConfig['source'], number>,
+    progress: Record<DailyTaskSource, number>,
+    tuning: DailyTuning,
   ): DailyView {
     const checkedInToday = row?.lastCheckinDay === day;
     const currentStreak = row?.streak ?? 0;
@@ -215,10 +244,10 @@ export class DailyService {
         done: checkedInToday,
         streak: currentStreak,
         totalCheckins: row?.totalCheckins ?? 0,
-        todayReward: checkinRewardOf(predictedStreak),
-        nextReward: checkinRewardOf(predictedStreak + 1),
+        todayReward: checkinRewardOf(predictedStreak, tuning.checkin),
+        nextReward: checkinRewardOf(predictedStreak + 1, tuning.checkin),
       },
-      tasks: DAILY_TASKS.map((t) => {
+      tasks: tuning.tasks.map((t) => {
         const cur = progress[t.source] ?? 0;
         return {
           key: t.key,

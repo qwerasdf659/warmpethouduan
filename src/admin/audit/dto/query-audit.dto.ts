@@ -1,4 +1,3 @@
-import { Transform } from 'class-transformer';
 import { IsBooleanString, IsOptional, IsString } from 'class-validator';
 import { PaginationDto } from '../../dto/pagination.dto';
 
@@ -7,8 +6,8 @@ export class QueryAuditDto extends PaginationDto {
   @IsString()
   adminUserId?: string;
 
+  /** 'true' | 'false'；查询串里只会是字符串，由 service 转布尔。 */
   @IsOptional()
   @IsBooleanString()
-  @Transform(({ value }) => value)
   success?: string;
 }

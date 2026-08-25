@@ -15,6 +15,7 @@ import { Idempotent } from '../common/idempotency/idempotent.decorator';
 import { IdempotencyInterceptor } from '../common/idempotency/idempotency.interceptor';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { AuthUser } from '../auth/jwt-auth.guard';
+import { PlayerStatusGuard } from '../auth/player-status.guard';
 import { AddressService } from './address.service';
 import { ExchangeService } from './exchange.service';
 import {
@@ -26,7 +27,7 @@ import {
 
 /** 兑换中心。 */
 @Controller('exchange')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PlayerStatusGuard)
 export class ExchangeController {
   constructor(private readonly exchange: ExchangeService) {}
 
@@ -55,7 +56,7 @@ export class ExchangeController {
 
 /** 收货地址。 */
 @Controller('address')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PlayerStatusGuard)
 export class AddressController {
   constructor(private readonly address: AddressService) {}
 

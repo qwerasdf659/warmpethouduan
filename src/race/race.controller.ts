@@ -11,11 +11,12 @@ import { Idempotent } from '../common/idempotency/idempotent.decorator';
 import { IdempotencyInterceptor } from '../common/idempotency/idempotency.interceptor';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { AuthUser } from '../auth/jwt-auth.guard';
+import { PlayerStatusGuard } from '../auth/player-status.guard';
 import { RaceAdBoostDto, RaceSettleDto, RaceStartDto } from './dto/race.dto';
 import { RaceService } from './race.service';
 
 @Controller('race')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PlayerStatusGuard)
 export class RaceController {
   constructor(private readonly race: RaceService) {}
 

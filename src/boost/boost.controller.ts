@@ -10,6 +10,7 @@ import { Idempotent } from '../common/idempotency/idempotent.decorator';
 import { IdempotencyInterceptor } from '../common/idempotency/idempotency.interceptor';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { AuthUser } from '../auth/jwt-auth.guard';
+import { PlayerStatusGuard } from '../auth/player-status.guard';
 import {
   AdTokenDto,
   AdVerifyDto,
@@ -21,7 +22,7 @@ import { BoostService } from './boost.service';
 
 /** 激励视频广告奖励 + 增值场景的一次性凭证签发。 */
 @Controller('ad')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PlayerStatusGuard)
 export class AdController {
   constructor(
     private readonly boost: BoostService,
@@ -48,7 +49,7 @@ export class AdController {
 
 /** 加速（清冷却）。 */
 @Controller('boost')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PlayerStatusGuard)
 export class BoostController {
   constructor(private readonly boost: BoostService) {}
 
@@ -62,7 +63,7 @@ export class BoostController {
 
 /** 体力恢复。 */
 @Controller('stamina')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PlayerStatusGuard)
 export class StaminaController {
   constructor(private readonly boost: BoostService) {}
 

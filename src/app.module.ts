@@ -11,6 +11,7 @@ import { AppService } from './app.service';
 import { RedisModule } from './redis/redis.module';
 import { DatabaseModule } from './database/database.module';
 import { CommonModule } from './common/common.module';
+import { GameConfigModule } from './config/game-config.module';
 import { WechatModule } from './wechat/wechat.module';
 import { AuthModule } from './auth/auth.module';
 import { PetModule } from './pet/pet.module';
@@ -115,6 +116,7 @@ import { AdminAuditLog } from './entities/admin-audit-log.entity';
     RedisModule,
     DatabaseModule,
     CommonModule,
+    GameConfigModule,
     WechatModule,
     AuthModule,
     PetModule,

@@ -52,8 +52,9 @@ export class AdminAuditLog {
   @Column({ name: 'user_agent', type: 'varchar', length: 255, nullable: true })
   userAgent: string | null;
 
+  /** 脱敏后的请求体；列可空，写入 null 表示无 body。 */
   @Column({ name: 'request_body', type: 'jsonb', nullable: true })
-  requestBody: unknown | null;
+  requestBody: unknown;
 
   @Column({ name: 'status_code', type: 'int' })
   statusCode: number;

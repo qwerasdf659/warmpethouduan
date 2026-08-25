@@ -2,6 +2,7 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { AuthUser } from '../auth/jwt-auth.guard';
+import { PlayerStatusGuard } from '../auth/player-status.guard';
 import { LedgerQueryDto } from './dto/ledger-query.dto';
 import { EconomyService } from './economy.service';
 
@@ -11,7 +12,7 @@ import { EconomyService } from './economy.service';
  * 避免出现「可以凭空加币」的通用写接口。
  */
 @Controller('wallet')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PlayerStatusGuard)
 export class EconomyController {
   constructor(private readonly economy: EconomyService) {}
 

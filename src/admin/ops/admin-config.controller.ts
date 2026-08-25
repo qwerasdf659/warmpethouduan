@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Post,
   Put,
   UseGuards,
   UseInterceptors,
@@ -39,6 +40,14 @@ export class AdminConfigController {
   @Audit('修改配置', 'config')
   upsert(@Param('key') key: string, @Body() dto: UpsertConfigDto) {
     return this.service.upsert(key, dto);
+  }
+
+  /** 恢复为代码内置默认值。 */
+  @Post(':key/reset')
+  @RequirePermissions('config:write')
+  @Audit('恢复配置默认值', 'config')
+  reset(@Param('key') key: string) {
+    return this.service.reset(key);
   }
 
   @Delete(':key')

@@ -5,10 +5,10 @@ import {
   businessDayKey,
   secondsUntilNextBusinessDay,
 } from '../common/time/business-day';
+import { GameConfigService } from '../config/game-config.service';
 import { EconomyService } from '../economy/economy.service';
 import { PetService, PetStateView } from '../pet/pet.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
-import { AD_REWARD, SPEEDUP, STAMINA_RECOVER } from './boost.config';
 
 /**
  * 广告激励 / 加速 / 体力恢复。
@@ -24,6 +24,7 @@ export class BoostService {
     private readonly pet: PetService,
     private readonly economy: EconomyService,
     private readonly clock: ClockService,
+    private readonly config: GameConfigService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
@@ -32,18 +33,19 @@ export class BoostService {
     userId: string,
     bizId: string,
   ): Promise<{ gained: number; gameCoin: number; remaining: number }> {
+    const cfg = await this.config.get('boost.ad_reward');
     const now = this.clock.now();
     const day = businessDayKey(now);
     const key = `ad:${userId}:${day}`;
     const used = parseInt((await this.redis.get(key)) ?? '0', 10);
-    if (used >= AD_REWARD.dailyCap) {
+    if (used >= cfg.dailyCap) {
       throw new BadRequestException('今日广告奖励次数已用尽');
     }
 
     const applied = await this.economy.apply({
       userId,
       pool: 'game',
-      delta: AD_REWARD.coin,
+      delta: cfg.coin,
       bizId: `ad:${bizId}`,
       reason: 'ad',
       refId: day,
@@ -56,9 +58,9 @@ export class BoostService {
     }
 
     return {
-      gained: AD_REWARD.coin,
+      gained: cfg.coin,
       gameCoin: applied.wallet.gameCoin,
-      remaining: Math.max(0, AD_REWARD.dailyCap - (used + 1)),
+      remaining: Math.max(0, cfg.dailyCap - (used + 1)),
     };
   }
 
@@ -68,10 +70,11 @@ export class BoostService {
     bizId: string,
     petId?: string,
   ): Promise<{ cleared: number; gameCoin: number }> {
+    const { cost } = await this.config.get('boost.speedup');
     const applied = await this.economy.apply({
       userId,
       pool: 'game',
-      delta: -SPEEDUP.cost,
+      delta: -cost,
       bizId: `speedup:${bizId}`,
       reason: 'boost',
       refId: petId ?? null,
@@ -86,10 +89,11 @@ export class BoostService {
     bizId: string,
     petId?: string,
   ): Promise<{ pet: PetStateView; gameCoin: number }> {
+    const { cost } = await this.config.get('boost.stamina_recover');
     const applied = await this.economy.apply({
       userId,
       pool: 'game',
-      delta: -STAMINA_RECOVER.cost,
+      delta: -cost,
       bizId: `stamina:${bizId}`,
       reason: 'boost',
       refId: petId ?? null,

@@ -1,0 +1,4 @@
+# 提交前卡口：只检查本次改动的文件，不自动修（自动修会把「代码有问题」这件事藏起来）。
+# 本项目不上 CI，卡口只有本地这一道，因此这里不放行任何 lint 报错。
+# 全量核对请用：npm run lint:check && npm run verify
+npx lint-staged

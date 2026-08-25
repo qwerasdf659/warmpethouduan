@@ -21,11 +21,12 @@ describe('AppController (e2e)', () => {
 
   it('/health (GET) 返回服务健康状态', async () => {
     const res = await request(app.getHttpServer()).get('/health').expect(200);
-    expect(res.body).toMatchObject({
+    const body = res.body as { time?: unknown };
+    expect(body).toMatchObject({
       status: 'ok',
       service: 'warmpet-api',
     });
-    expect(typeof res.body.time).toBe('string');
+    expect(typeof body.time).toBe('string');
   });
 
   afterEach(async () => {

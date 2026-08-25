@@ -1,8 +1,12 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { Ledger } from '../entities/ledger.entity';
 import { Wallet } from '../entities/wallet.entity';
-import { EconomyService } from './economy.service';
+import { ApplyResult, EconomyService } from './economy.service';
 
 /**
  * EconomyService 是经济域唯一记账入口，核心保证：
@@ -64,10 +68,19 @@ describe('EconomyService', () => {
   });
 
   describe('apply 记账', () => {
+    /** 按 SQL 片段分派的假 query，绕开 EntityManager['query'] 的泛型签名。 */
+    function fakeQuery(
+      handler: (sql: string) => unknown,
+    ): EntityManager['query'] {
+      return jest.fn((sql: string) =>
+        Promise.resolve(handler(sql)),
+      ) as unknown as EntityManager['query'];
+    }
+
     /** 模拟一次成功事务：UPDATE 返回新余额，INSERT ledger 返回主键。 */
     function mockSuccessTx() {
       const m: Partial<EntityManager> = {
-        query: jest.fn(async (sql: string) => {
+        query: fakeQuery((sql) => {
           if (sql.includes('INSERT INTO "wallet"')) return [];
           if (sql.includes('UPDATE "wallet"')) {
             // UPDATE ... RETURNING → [rows[], affected]
@@ -79,7 +92,9 @@ describe('EconomyService', () => {
           return [];
         }),
       };
-      dataSource.transaction.mockImplementation((cb: any) => cb(m));
+      dataSource.transaction.mockImplementation(
+        (cb: (m: EntityManager) => unknown) => cb(m as EntityManager),
+      );
       return m;
     }
 
@@ -105,14 +120,25 @@ describe('EconomyService', () => {
       });
     });
 
-    it('余额不足：UPDATE 影响 0 行 → BadRequestException', async () => {
+    /** UPDATE 影响 0 行；user 表按传入状态应答，用于区分两种失败成因。 */
+    function mockZeroRowTx(userStatus: 'active' | 'banned') {
       const m: Partial<EntityManager> = {
-        query: jest.fn(async (sql: string) => {
+        query: fakeQuery((sql) => {
           if (sql.includes('UPDATE "wallet"')) return [[], 0];
+          if (sql.includes('FROM "user"')) {
+            return [{ status: userStatus, banned_reason: '违规刷币' }];
+          }
           return [];
         }),
       };
-      dataSource.transaction.mockImplementation((cb: any) => cb(m));
+      dataSource.transaction.mockImplementation(
+        (cb: (m: EntityManager) => unknown) => cb(m as EntityManager),
+      );
+      return m;
+    }
+
+    it('余额不足：UPDATE 影响 0 行 → BadRequestException', async () => {
+      mockZeroRowTx('active');
 
       await expect(
         service.apply({
@@ -123,6 +149,38 @@ describe('EconomyService', () => {
           reason: 'purchase',
         }),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('封禁账号：0 行成因是封禁而非余额 → ForbiddenException', async () => {
+      mockZeroRowTx('banned');
+
+      await expect(
+        service.apply({
+          userId: 'u1',
+          pool: 'game',
+          delta: 10,
+          bizId: 'b1',
+          reason: 'race',
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('后台补偿豁免封禁：SQL 不带 user 状态条件', async () => {
+      const m = mockSuccessTx();
+
+      await service.adminGrant({
+        userId: 'u1',
+        pool: 'game',
+        delta: 10,
+        bizId: 'g1',
+      });
+
+      const calls = (m.query as unknown as jest.Mock).mock.calls as unknown[][];
+      const updateSql = calls
+        .map((c) => String(c[0]))
+        .find((sql) => sql.includes('UPDATE "wallet"'));
+      expect(updateSql).toBeDefined();
+      expect(updateSql).not.toContain('status');
     });
 
     it('重复提交(23505)：走幂等回放，duplicated=true 且不二次变动', async () => {
@@ -175,7 +233,12 @@ describe('EconomyService', () => {
 
   describe('adminGrant', () => {
     it('正数 → admin_grant，负数 → admin_deduct', async () => {
-      const spy = jest.spyOn(service, 'apply').mockResolvedValue({} as any);
+      // 本例只关心透传给 apply 的 reason/delta，返回值形状随便给个合法的
+      const spy = jest.spyOn(service, 'apply').mockResolvedValue({
+        wallet: { gameCoin: 0, marketingPoint: 0 },
+        entry: {} as ApplyResult['entry'],
+        duplicated: false,
+      });
 
       await service.adminGrant({
         userId: 'u1',

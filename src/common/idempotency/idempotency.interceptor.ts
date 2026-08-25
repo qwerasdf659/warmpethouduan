@@ -8,9 +8,11 @@ import {
   NestInterceptor,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { Request } from 'express';
 import Redis from 'ioredis';
 import { Observable, from, of, switchMap } from 'rxjs';
 import { tap } from 'rxjs/operators';
+import { AuthUser } from '../../auth/jwt-auth.guard';
 import { REDIS_CLIENT } from '../../redis/redis.module';
 import { IDEMPOTENT_KEY } from './idempotent.decorator';
 
@@ -38,9 +40,11 @@ export class IdempotencyInterceptor implements NestInterceptor {
     );
     if (!isIdempotent) return next.handle();
 
-    const req = context.switchToHttp().getRequest();
+    const req = context
+      .switchToHttp()
+      .getRequest<Request & { user?: AuthUser }>();
     const userId = req.user?.userId ?? 'anon';
-    const bizId = req.body?.bizId;
+    const bizId = (req.body as { bizId?: unknown } | undefined)?.bizId;
     if (!bizId || typeof bizId !== 'string') {
       throw new BadRequestException('缺少幂等参数 bizId');
     }
@@ -73,7 +77,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
             if (!stored || stored === PENDING) {
               throw new ConflictException('请求处理中，请勿重复提交');
             }
-            return of(JSON.parse(stored));
+            return of(JSON.parse(stored) as unknown);
           }),
         );
       }),

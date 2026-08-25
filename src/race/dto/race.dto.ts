@@ -1,14 +1,10 @@
 import {
-  IsIn,
   IsNumberString,
   IsOptional,
   IsString,
   MaxLength,
   MinLength,
 } from 'class-validator';
-import { RACE_TRACKS } from '../race.config';
-
-const TRACK_KEYS = RACE_TRACKS.map((t) => t.key);
 
 export class RaceStartDto {
   @IsString()
@@ -16,8 +12,13 @@ export class RaceStartDto {
   @MaxLength(128)
   bizId: string;
 
+  /**
+   * 不用 `@IsIn` 锁死赛道列表：赛道已是运营可配置项，
+   * 模块加载时快照白名单会让后台新增的赛道永远校验不过。
+   * 未知 key 由 `RaceService` 按当前配置判定。
+   */
   @IsString()
-  @IsIn(TRACK_KEYS)
+  @MaxLength(32)
   trackKey: string;
 
   /** 参赛宠，缺省用当前出战宠。 */

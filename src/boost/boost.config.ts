@@ -1,37 +1,70 @@
 /**
  * 广告 / 加速 / 体力恢复的可调数值。
  */
+import {
+  defineConfig,
+  nonNegInt,
+  posInt,
+  strictObject,
+  type ShapeOf,
+} from '../config/game-config.types';
 
-/** 激励视频广告奖励：每次固定发币，账号级每日次数上限。 */
-export const AD_REWARD = {
-  coin: 30,
-  dailyCap: 5,
-} as const;
+export interface AdRewardConfig {
+  coin: number;
+  dailyCap: number;
+}
 
-/** 体力恢复：付费恢复满体力的游戏币花费。 */
-export const STAMINA_RECOVER = {
-  cost: 50,
-} as const;
+export interface CostConfig {
+  cost: number;
+}
 
-/** 加速：清除某宠全部互动冷却的游戏币花费。 */
-export const SPEEDUP = {
-  cost: 20,
-} as const;
+export interface AdTokenConfig {
+  /** 凭证有效期（秒）：够放完一支激励视频 + 结算往返 */
+  ttlSec: number;
+  /** 每个 scene 的账号级每日签发上限（防刷） */
+  dailyCapPerScene: number;
+}
 
 /**
- * 「看广告换增值」的一次性凭证（nonce）。玩法侧不直接信任客户端说「我看过广告了」，
- * 而是先领一枚 scene 绑定的短时效 nonce，用掉即失效。
- *
- * 注：微信激励视频无标准服务端回调票据，nonce 只能防「同一次广告重复兑换」与
- * 「凭空调用增值接口」，挡不住刻意刷量；接入第三方 SSP 回调后应在签发处校验签名。
+ * 允许领取广告凭证的业务场景。**结构性**取值：每个 scene 对应一条具体的
+ * 兑换代码路径，加 scene 必须同时改代码，故不开放给运营。
  */
-export const AD_TOKEN = {
-  /** 凭证有效期：够放完一支激励视频 + 结算往返 */
-  ttlSec: 300,
-  /** 每个 scene 的账号级每日签发上限（防刷） */
-  dailyCapPerScene: 10,
-} as const;
-
-/** 允许领取广告凭证的业务场景。 */
 export const AD_SCENES = ['race_double', 'race_revive'] as const;
 export type AdScene = (typeof AD_SCENES)[number];
+
+// ------------------------------------------------------------------ 配置项
+
+export const BOOST_CONFIG = {
+  'boost.ad_reward': defineConfig<AdRewardConfig>({
+    description: '激励视频广告奖励：每次发币量与账号级每日次数上限',
+    default: { coin: 30, dailyCap: 5 },
+    schema: strictObject({
+      coin: nonNegInt.required(),
+      dailyCap: nonNegInt.required(),
+    }),
+  }),
+
+  'boost.stamina_recover': defineConfig<CostConfig>({
+    description: '付费恢复满体力的游戏币花费',
+    default: { cost: 50 },
+    schema: strictObject({ cost: nonNegInt.required() }),
+  }),
+
+  'boost.speedup': defineConfig<CostConfig>({
+    description: '清除某宠全部互动冷却的游戏币花费',
+    default: { cost: 20 },
+    schema: strictObject({ cost: nonNegInt.required() }),
+  }),
+
+  'boost.ad_token': defineConfig<AdTokenConfig>({
+    description: '看广告凭证（nonce）：有效期与每场景每日签发上限',
+    default: { ttlSec: 300, dailyCapPerScene: 10 },
+    schema: strictObject({
+      // TTL 必须 >0，否则凭证签发即过期；上限 1h 防误填成长期有效
+      ttlSec: posInt.max(3600).required(),
+      dailyCapPerScene: nonNegInt.required(),
+    }),
+  }),
+};
+
+export type BoostConfigShape = ShapeOf<typeof BOOST_CONFIG>;

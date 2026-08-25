@@ -11,7 +11,8 @@ export interface IdempotencyRecord {
   bizId: string;
   status: 'pending' | 'done';
   ttlSec: number;
-  result: unknown | null;
+  /** 处理中时为 null；已完成时为上次成功结果的 JSON 反序列化值。 */
+  result: unknown;
 }
 
 /**

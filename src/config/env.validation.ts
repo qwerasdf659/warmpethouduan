@@ -43,6 +43,22 @@ export const envValidationSchema = Joi.object({
   WECHAT_APPID: Joi.string().required(),
   WECHAT_SECRET: Joi.string().required(),
   WECHAT_UPLOAD_PRIVATE_KEY_PATH: Joi.string().optional(),
+  /**
+   * 联调开关：允许用 `mock:<标识>` 形式的假 code 直接换取 JWT，免真机拿 code。
+   * 这是一条**鉴权绕过**路径，生产环境显式禁止——配成 true 直接拒绝启动，
+   * 而不是静默忽略（静默忽略会让误配一直潜伏到出事）。
+   */
+  WECHAT_MOCK_LOGIN: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(false)
+    .when('NODE_ENV', {
+      is: 'production',
+      then: Joi.valid(false).messages({
+        'any.only':
+          'WECHAT_MOCK_LOGIN 禁止在生产环境开启（该开关会绕过微信鉴权）',
+      }),
+    }),
 
   // Sealos 对象存储（M1 可选，后期用到再置为 required）
   SEALOS_BUCKET: Joi.string().optional(),

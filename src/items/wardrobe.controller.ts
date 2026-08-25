@@ -12,11 +12,12 @@ import { Idempotent } from '../common/idempotency/idempotent.decorator';
 import { IdempotencyInterceptor } from '../common/idempotency/idempotency.interceptor';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { AuthUser } from '../auth/jwt-auth.guard';
+import { PlayerStatusGuard } from '../auth/player-status.guard';
 import { BuyItemDto, EquipDto, UnequipDto } from './dto/wardrobe.dto';
 import { WardrobeService } from './wardrobe.service';
 
 @Controller('wardrobe')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PlayerStatusGuard)
 export class WardrobeController {
   constructor(private readonly wardrobe: WardrobeService) {}
 

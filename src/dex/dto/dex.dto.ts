@@ -1,7 +1,4 @@
-import { IsIn, IsString, MaxLength, MinLength } from 'class-validator';
-import { DEX_ENTRIES } from '../dex.config';
-
-const ENTRY_KEYS = DEX_ENTRIES.map((e) => e.key);
+import { IsString, MaxLength, MinLength } from 'class-validator';
 
 export class DexClaimDto {
   @IsString()
@@ -9,7 +6,12 @@ export class DexClaimDto {
   @MaxLength(128)
   bizId: string;
 
+  /**
+   * 不用 `@IsIn` 锁死图鉴条目：条目已是运营可配置项，
+   * 模块加载时快照白名单会让后台新增的条目永远校验不过。
+   * 未知 key 由 `DexService` 按当前配置判定。
+   */
   @IsString()
-  @IsIn(ENTRY_KEYS)
+  @MaxLength(32)
   entryKey: string;
 }

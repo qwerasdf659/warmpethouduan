@@ -2,10 +2,11 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { LockService } from '../common/lock/lock.service';
+import { GameConfigService } from '../config/game-config.service';
 import { EconomyService, WalletView } from '../economy/economy.service';
 import { RedeemOrder } from '../entities/redeem-order.entity';
 import { AddressService } from './address.service';
-import { EXCHANGE_ITEMS, getExchangeItem } from './exchange.config';
+import { ExchangeItem, getExchangeItem } from './exchange.config';
 import { OrderQueryDto } from './dto/exchange.dto';
 
 /**
@@ -21,15 +22,16 @@ export class ExchangeService {
     private readonly economy: EconomyService,
     private readonly address: AddressService,
     private readonly lock: LockService,
+    private readonly config: GameConfigService,
   ) {}
 
   /** 兑换目录 + 当前余额。 */
   async list(userId: string): Promise<{
-    items: typeof EXCHANGE_ITEMS;
+    items: ExchangeItem[];
     wallet: WalletView;
   }> {
     return {
-      items: EXCHANGE_ITEMS,
+      items: await this.config.get('exchange.items'),
       wallet: await this.economy.getWallet(userId),
     };
   }
@@ -55,7 +57,8 @@ export class ExchangeService {
     bizId: string,
     addressId?: string,
   ): Promise<{ order: RedeemOrder; wallet: WalletView }> {
-    const item = getExchangeItem(exchangeKey);
+    const items = await this.config.get('exchange.items');
+    const item = getExchangeItem(items, exchangeKey);
     if (!item) throw new BadRequestException('兑换项不存在');
 
     let addressSnapshot = null as RedeemOrder['address'];

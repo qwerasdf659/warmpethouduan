@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { LockService } from '../common/lock/lock.service';
+import { GameConfigService } from '../config/game-config.service';
 import { comfortFactorOf } from '../pet/pet.config';
 import { ItemDef } from '../entities/item-def.entity';
 import { HomeLayout } from '../entities/home-layout.entity';
@@ -53,6 +54,7 @@ export class HomeService {
     private readonly defs: Repository<ItemDef>,
     private readonly items: ItemsService,
     private readonly lock: LockService,
+    private readonly config: GameConfigService,
   ) {}
 
   async getHome(userId: string): Promise<HomeView> {
@@ -80,7 +82,10 @@ export class HomeService {
 
     return {
       comfort,
-      comfortFactor: comfortFactorOf(comfort),
+      comfortFactor: comfortFactorOf(
+        comfort,
+        await this.config.get('pet.comfort'),
+      ),
       items: defs.map((d) => ({
         key: d.key,
         name: d.name,

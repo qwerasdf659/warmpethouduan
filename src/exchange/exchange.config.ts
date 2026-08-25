@@ -1,7 +1,14 @@
 /**
- * 兑换中心目录（配置）。实物用营销积分（marketing）兑换、可发货；
- * 虚拟奖励即时到账。后续可迁 DB 的 exchange_def 表由运营 CRUD。
+ * 兑换中心目录。实物用营销积分（marketing）兑换、可发货；虚拟奖励即时到账。
  */
+import * as Joi from 'joi';
+import {
+  defineConfig,
+  nonNegInt,
+  strictObject,
+  type ShapeOf,
+} from '../config/game-config.types';
+
 export interface ExchangeItem {
   key: string;
   name: string;
@@ -14,7 +21,7 @@ export interface ExchangeItem {
   sortOrder: number;
 }
 
-export const EXCHANGE_ITEMS: ExchangeItem[] = [
+const DEFAULT_ITEMS: ExchangeItem[] = [
   {
     key: 'coupon_5',
     name: '5 元代金券',
@@ -44,6 +51,33 @@ export const EXCHANGE_ITEMS: ExchangeItem[] = [
   },
 ];
 
-export function getExchangeItem(key: string): ExchangeItem | undefined {
-  return EXCHANGE_ITEMS.find((e) => e.key === key);
+export const EXCHANGE_CONFIG = {
+  'exchange.items': defineConfig<ExchangeItem[]>({
+    description: '兑换目录：physical 需收货地址并走发货流程，virtual 即时到账',
+    default: DEFAULT_ITEMS,
+    schema: Joi.array()
+      .items(
+        strictObject({
+          key: Joi.string().max(48).required(),
+          name: Joi.string().max(64).required(),
+          type: Joi.string().valid('physical', 'virtual').required(),
+          // 允许 0 成本（做活动白送），但不允许负数
+          cost: nonNegInt.required(),
+          pool: Joi.string().valid('game', 'marketing').required(),
+          desc: Joi.string().max(128).allow('').required(),
+          sortOrder: nonNegInt.required(),
+        }),
+      )
+      // 允许空数组：运营可临时下架整个兑换中心
+      .required(),
+  }),
+};
+
+export type ExchangeConfigShape = ShapeOf<typeof EXCHANGE_CONFIG>;
+
+export function getExchangeItem(
+  items: ExchangeItem[],
+  key: string,
+): ExchangeItem | undefined {
+  return items.find((e) => e.key === key);
 }

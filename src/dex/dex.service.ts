@@ -2,10 +2,11 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { LockService } from '../common/lock/lock.service';
+import { GameConfigService } from '../config/game-config.service';
 import { EconomyService } from '../economy/economy.service';
 import { PetService, PetStateView } from '../pet/pet.service';
 import { DexClaim } from '../entities/dex-claim.entity';
-import { DEX_ENTRIES, DexEntry, getDexEntry } from './dex.config';
+import { DexEntry, getDexEntry } from './dex.config';
 
 export interface DexEntryView {
   key: string;
@@ -26,16 +27,18 @@ export class DexService {
     private readonly pet: PetService,
     private readonly economy: EconomyService,
     private readonly lock: LockService,
+    private readonly config: GameConfigService,
   ) {}
 
   /** 图鉴列表（含进度/解锁/领取态）。 */
   async getDex(userId: string): Promise<{ entries: DexEntryView[] }> {
+    const defs = await this.config.get('dex.entries');
     const pets = await this.pet.peekPets(userId);
     const claimed = new Set(
       (await this.claims.find({ where: { userId } })).map((c) => c.entryKey),
     );
     return {
-      entries: DEX_ENTRIES.map((e) => this.toView(e, pets, claimed)),
+      entries: defs.map((e) => this.toView(e, pets, claimed)),
     };
   }
 
@@ -44,7 +47,8 @@ export class DexService {
     userId: string,
     entryKey: string,
   ): Promise<{ entries: DexEntryView[]; gained: number; gameCoin: number }> {
-    const entry = getDexEntry(entryKey);
+    const defs = await this.config.get('dex.entries');
+    const entry = getDexEntry(defs, entryKey);
     if (!entry) throw new BadRequestException('未知图鉴条目');
 
     return this.lock.withLock(`pet:${userId}`, async () => {
@@ -76,7 +80,7 @@ export class DexService {
         (await this.claims.find({ where: { userId } })).map((c) => c.entryKey),
       );
       return {
-        entries: DEX_ENTRIES.map((e) => this.toView(e, pets, claimed)),
+        entries: defs.map((e) => this.toView(e, pets, claimed)),
         gained: entry.reward,
         gameCoin: applied.wallet.gameCoin,
       };

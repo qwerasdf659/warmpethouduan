@@ -7,6 +7,8 @@ import { WechatModule } from '../wechat/wechat.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { PlayerStatusGuard } from './player-status.guard';
+import { PlayerStatusService } from './player-status.service';
 
 @Module({
   imports: [
@@ -26,7 +28,12 @@ import { JwtAuthGuard } from './jwt-auth.guard';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAuthGuard],
-  exports: [JwtAuthGuard, JwtModule],
+  providers: [
+    AuthService,
+    JwtAuthGuard,
+    PlayerStatusGuard,
+    PlayerStatusService,
+  ],
+  exports: [JwtAuthGuard, PlayerStatusGuard, PlayerStatusService, JwtModule],
 })
 export class AuthModule {}
