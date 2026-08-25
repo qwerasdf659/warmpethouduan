@@ -39,10 +39,10 @@
 ## 目录约定
 
 - `src/entities/*.entity.ts`：所有实体（CLI DataSource 用 glob 登记，**新增实体禁止只登记到 `app.module.ts`**，否则 `migration:generate` 会把该表当「多余表」生成 `DROP TABLE`）。
-- `src/migrations/*.ts`：迁移文件（当前 11 条）。
+- `src/migrations/*.ts`：迁移文件（当前 12 条）。
 - `src/common`：基础设施三件套（`ClockService` / `LockService` / `IdempotencyInterceptor`，全局）。
 - `admin-web/`：运营后台前端（独立 pnpm 工程，`pnpm build` 产物挂 `/console`）。
-- `../docs/`：项目文档（仓库外，08 技术路线 / 09 搭建 / 10 MVP 详细规格）。
+- `docs/`：项目文档（宠物功能详细规格 / 待办执行清单）。
 
 ## 环境变量
 

@@ -24,4 +24,4 @@ alwaysApply: true
 - 部署：**PM2 常驻**（`ecosystem.config.js` 守护 app + 本机 redis），非「打包镜像」。
 - 密钥只在 `.env` / `secrets/`，已 `.gitignore`，**绝不提交**；新增密钥同步更新 `.env.example`（占位）。
 - 表结构改动必须新增迁移：`npm run migration:generate -- src/migrations/Xxx` → `migration:run`，禁用 synchronize。
-- 项目文档在仓库外的 `../docs/`（08 技术路线 / 09 搭建 / 10 MVP 方案）。
+- 项目文档在仓库内的 `docs/`（宠物功能详细规格 / 待办执行清单）。
