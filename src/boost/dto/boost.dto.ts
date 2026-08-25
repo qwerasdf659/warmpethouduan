@@ -6,7 +6,8 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
-import { AD_SCENES, AdScene } from '../boost.config';
+import { AD_SCENES } from '../boost.config';
+import type { AdScene } from '../boost.config';
 
 /** 领取「看广告换增值」的一次性凭证。 */
 export class AdTokenDto {

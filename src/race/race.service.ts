@@ -245,6 +245,132 @@ export class RaceService {
     };
   }
 
+  /**
+   * 看广告奖励翻倍：在已结算的基础上再发一份等额奖励。每场至多一次。
+   *
+   * 幂等有三层：`reward_doubled` 列做业务态去重、economy 用**稳定** bizId
+   * `race:double:{raceId}`（不取客户端 bizId，否则换个 bizId 就能重复领）、
+   * 更新语句带 `rewardDoubled: false` 条件兜住并发。
+   */
+  async doubleReward(
+    userId: string,
+    raceId: string,
+    adToken: string,
+  ): Promise<RaceDoubleResult> {
+    const race = await this.races.findOne({ where: { id: raceId, userId } });
+    if (!race) throw new NotFoundException('赛跑记录不存在');
+
+    if (race.status !== 'settled') {
+      throw new BadRequestException('请先结算本场比赛再翻倍');
+    }
+    if (race.rewardCoin <= 0) {
+      throw new BadRequestException('本场无奖励可翻倍');
+    }
+
+    // 已翻倍：回放，不消耗凭证也不再发币
+    if (race.rewardDoubled) {
+      const wallet = await this.economy.getWallet(userId);
+      return {
+        raceId: race.id,
+        bonusCoin: race.rewardCoin,
+        totalRewardCoin: race.rewardCoin * 2,
+        gameCoin: wallet.gameCoin,
+        duplicated: true,
+      };
+    }
+
+    await this.adToken.consume(userId, adToken, 'race_double');
+
+    const applied = await this.economy.apply({
+      userId,
+      pool: 'game',
+      delta: race.rewardCoin,
+      bizId: `race:double:${race.id}`,
+      reason: 'race',
+      refId: race.trackKey,
+    });
+
+    await this.races.update(
+      { id: race.id, rewardDoubled: false },
+      { rewardDoubled: true },
+    );
+
+    return {
+      raceId: race.id,
+      bonusCoin: race.rewardCoin,
+      totalRewardCoin: race.rewardCoin * 2,
+      gameCoin: applied.wallet.gameCoin,
+      duplicated: applied.duplicated,
+    };
+  }
+
+  /**
+   * 看广告复活重跑：对**未结算**的比赛按当前战力重掷名次，不再扣体力/门票。
+   * 限每场 `RACE_REVIVE.maxPerRace` 次——否则可反复重掷刷到第一名。
+   */
+  async revive(
+    userId: string,
+    raceId: string,
+    adToken: string,
+  ): Promise<RaceReviveResult> {
+    const race = await this.races.findOne({ where: { id: raceId, userId } });
+    if (!race) throw new NotFoundException('赛跑记录不存在');
+
+    if (race.status !== 'pending') {
+      throw new BadRequestException('已结算的比赛不能复活重跑');
+    }
+    if (race.reviveCount >= RACE_REVIVE.maxPerRace) {
+      throw new BadRequestException('本场复活机会已用完');
+    }
+
+    const track = getTrack(race.trackKey);
+    if (!track) throw new BadRequestException('赛道配置已下线，无法重跑');
+
+    await this.adToken.consume(userId, adToken, 'race_revive');
+
+    // 用参赛那只宠的当前战力重掷（服务端权威，客户端无法干预）
+    const battle = await this.pet.getBattleStats(userId, race.petId);
+    const power = this.powerOf(battle.speed, battle.endurance);
+    const playerScore = Math.round(
+      power * RACE_REVIVE.scoreBonus * this.rand(0.9, 1.1),
+    );
+    const opponentScores: number[] = [];
+    for (let i = 0; i < OPPONENT_COUNT; i++) {
+      opponentScores.push(
+        Math.round(power * track.difficulty * this.rand(0.8, 1.05)),
+      );
+    }
+    const rank = 1 + opponentScores.filter((s) => s > playerScore).length;
+    const rewardCoin = rewardOfRank(track, rank);
+    const previousRank = race.rank;
+
+    // 条件更新兜住并发重跑：只有 revive_count 仍是读到的值时才写入
+    const res = await this.races.update(
+      { id: race.id, status: 'pending', reviveCount: race.reviveCount },
+      {
+        score: playerScore,
+        rank,
+        rewardCoin,
+        reviveCount: race.reviveCount + 1,
+      },
+    );
+    if (!res.affected) {
+      throw new BadRequestException('本场状态已变更，请刷新后重试');
+    }
+
+    return {
+      raceId: race.id,
+      rank,
+      totalRacers: race.totalRacers,
+      playerScore,
+      opponentScores,
+      rewardCoin,
+      previousRank,
+      reviveCount: race.reviveCount + 1,
+      status: 'pending',
+    };
+  }
+
   // ---------------------------------------------------------------- 内部
 
   /** 基础战力：速度权重更高，耐力次之。 */

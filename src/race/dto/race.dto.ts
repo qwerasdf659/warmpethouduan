@@ -35,3 +35,19 @@ export class RaceSettleDto {
   @IsNumberString()
   raceId: string;
 }
+
+/** 看广告类增值：raceId + 由 `POST /ad/token` 领到的一次性凭证。 */
+export class RaceAdBoostDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  bizId: string;
+
+  @IsNumberString()
+  raceId: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
+  adToken: string;
+}
