@@ -1,5 +1,10 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
+/**
+ * 赛跑「看广告增值」：奖励翻倍 + 复活重跑。
+ * `reward_doubled` 兼作翻倍发放的库层去重标记（每场至多一次）；
+ * `revive_count` 限制每场重掷名次的次数，防止反复重跑刷到第一名。
+ */
 export class RaceAdBoost1787659151481 implements MigrationInterface {
     name = 'RaceAdBoost1787659151481'
 
