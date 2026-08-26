@@ -20,7 +20,7 @@
     "lint": "eslint src test scripts/dev --fix",
     "lint:check": "eslint src test scripts/dev --max-warnings 0",
     "verify": "npm run lint:check && tsc --noEmit && npm run verify:web && jest --silent && npm run test:e2e",
-    "verify:web": "pnpm --dir admin-web lint && pnpm --dir admin-web typecheck",
+    "verify:web": "pnpm --dir admin-web lint && pnpm --dir admin-web typecheck && pnpm --dir admin-web test",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
@@ -35,14 +35,19 @@
     "clean:dev": "npm run script -- scripts/dev/clean-dev-players.ts",
     "wipe:pre-launch": "npm run script -- scripts/dev/wipe-pre-launch.ts",
     "prepare": "husky",
-    "audit": "npm run script -- scripts/dev/audit-state.ts"
+    "audit": "npm run script -- scripts/dev/audit-state.ts",
+    "admin:passwd": "npm run script -- scripts/dev/admin-passwd.ts"
   },
   "lint-staged": {
-    "{src,test}/**/*.ts": [
+    "{src,test,scripts/dev}/**/*.ts": [
       "eslint --max-warnings 0"
+    ],
+    "admin-web/**/*.{ts,tsx}": [
+      "bash -c 'pnpm --dir admin-web lint'"
     ]
   },
   "dependencies": {
+    "@nest-lab/throttler-storage-redis": "^1.2.0",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
@@ -51,10 +56,12 @@
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/schedule": "^6.1.3",
     "@nestjs/serve-static": "^5.0.5",
+    "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^11.0.3",
     "axios": "^1.19.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "helmet": "^8.3.0",
     "ioredis": "^5.11.1",
     "joi": "^18.2.5",
     "pg": "^8.23.0",

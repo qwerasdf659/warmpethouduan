@@ -10,6 +10,23 @@ export const envValidationSchema = Joi.object({
     .default('development'),
   PORT: Joi.number().default(8080),
   TZ: Joi.string().default('Asia/Shanghai'),
+  /**
+   * 信任的反向代理跳数（Express trust proxy）。Sealos DevBox 的公网访问经一层
+   * ingress，故默认 1；直连裸跑可设 0。设错的后果见 main.ts 里的说明——
+   * 设小了会让所有管理员共用一个登录频控计数桶，设大了则 X-Forwarded-For 可被伪造。
+   */
+  TRUST_PROXY_HOPS: Joi.number().min(0).max(5).default(1),
+  /**
+   * CSP 的落地档位。默认 report-only：CSP 配错的表现是「后台页面样式全丢/白屏，
+   * 但控制台只有几条 CSP 报错」，很容易被误判成构建问题，所以先只观察不拦截。
+   *
+   * 在浏览器里实开 /console 走一遍登录、玩家管理、配置中心、兑换码四个页面，
+   * 确认控制台无 CSP violation 后，改成 enforce 才算真正生效。
+   * off 只用于排查「是不是 CSP 造成的」，不要长期停在这一档。
+   */
+  CSP_MODE: Joi.string()
+    .valid('enforce', 'report-only', 'off')
+    .default('report-only'),
 
   // PostgreSQL（托管）
   DB_HOST: Joi.string().required(),
@@ -28,6 +45,11 @@ export const envValidationSchema = Joi.object({
 
   // Redis（本机）
   REDIS_URL: Joi.string().required(),
+
+  // 限流兜底，额度按「每 IP 每端点每窗口」计。只是「别把服务打爆」的粗网，
+  // 真正拦爆破的是 LoginThrottleService 与登录端点自己的 @Throttle。
+  THROTTLE_TTL_MS: Joi.number().min(1000).default(60000),
+  THROTTLE_LIMIT: Joi.number().min(1).default(100),
 
   // JWT
   JWT_SECRET: Joi.string().min(16).required(),

@@ -1,11 +1,26 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
 import { Logger, ValidationPipe } from '@nestjs/common';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { buildHelmetOptions, CspMode } from './common/security/helmet.options';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  /*
+   * 反向代理跳数。决定 req.ip 取 socket 地址还是 X-Forwarded-For。
+   *
+   * 这不是可有可无的一行：后台登录频控按 IP 计数（LoginThrottleService），
+   * 设成 0 时 Sealos ingress 后面的所有请求会共用 ingress 的那一个 IP，
+   * 20 次失败就把全部管理员一起锁在门外。
+   */
+  app.set('trust proxy', parseInt(process.env.TRUST_PROXY_HOPS ?? '1', 10));
+
+  const cspMode = (process.env.CSP_MODE ?? 'report-only') as CspMode;
+  app.use(helmet(buildHelmetOptions(cspMode)));
 
   app.useGlobalPipes(
     new ValidationPipe({

@@ -7,6 +7,7 @@ import { DataSource } from 'typeorm';
 import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 import { REDIS_CLIENT } from '../../src/redis/redis.module';
+import { hashPassword } from '../../src/admin/utils/password.util';
 
 /**
  * 连真库的 e2e 夹具。
@@ -18,6 +19,8 @@ import { REDIS_CLIENT } from '../../src/redis/redis.module';
  */
 export class E2eApp {
   private readonly userIds: string[] = [];
+  private readonly adminIds: string[] = [];
+  private readonly adminRoleCodes: string[] = [];
 
   private constructor(
     readonly app: INestApplication,
@@ -72,6 +75,73 @@ export class E2eApp {
     this.userIds.push(userId);
     const token = await this.jwt.signAsync({ sub: userId, openid });
     return { userId, openid, token };
+  }
+
+  /**
+   * 建一个临时后台账号，并按 permissions 现配一个专属角色。
+   *
+   * 不复用 super_admin：那是播种出来的系统角色，e2e 往里塞人再删会碰到生产数据；
+   * 每个用例自带角色也才能验「权限点不够时被 403 拦下」这类分支。
+   * 不返回令牌——后台 e2e 的目的之一就是验登录本身，令牌必须真的登一次拿到。
+   */
+  async createAdmin(opts: {
+    permissions?: string[];
+    password?: string;
+    status?: 'active' | 'disabled';
+  }): Promise<{ adminId: string; username: string; password: string }> {
+    const tag = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const username = `e2e_admin_${tag}`;
+    const password = opts.password ?? `Pw_${tag}_!aZ9`;
+    const roleCode = `e2e_role_${tag}`;
+
+    const admins = await this.db.query<{ id: string }[]>(
+      `INSERT INTO admin_user (username, password_hash, display_name, status)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [
+        username,
+        await hashPassword(password),
+        'e2e 测试账号',
+        opts.status ?? 'active',
+      ],
+    );
+    const adminId = admins[0].id;
+    this.adminIds.push(adminId);
+
+    const roles = await this.db.query<{ id: string }[]>(
+      `INSERT INTO admin_role (code, name, description, is_system)
+       VALUES ($1, $2, $3, false) RETURNING id`,
+      [roleCode, 'e2e 测试角色', '由 e2e 创建，teardown 会删'],
+    );
+    const roleId = roles[0].id;
+    this.adminRoleCodes.push(roleCode);
+
+    await this.db.query(
+      `INSERT INTO admin_user_role (admin_user_id, role_id) VALUES ($1, $2)`,
+      [adminId, roleId],
+    );
+    for (const code of opts.permissions ?? []) {
+      await this.db.query(
+        `INSERT INTO admin_role_permission (role_id, permission_id)
+         SELECT $1, id FROM admin_permission WHERE code = $2`,
+        [roleId, code],
+      );
+    }
+    return { adminId, username, password };
+  }
+
+  /**
+   * 清掉限流留下的计数。
+   *
+   * 两套键都要清：login:fail:* 是 LoginThrottleService 的账号/IP 失败计数，
+   * `{...}` 开头的是 @nestjs/throttler 的 Redis 存储（键名带花括号做 hash tag）。
+   * 不清的话，一个跑满配额的用例会把 60 秒内的后续用例连坐成 429，
+   * 表现为「单独跑能过、连着跑就挂」。
+   */
+  async resetThrottle(): Promise<void> {
+    for (const pattern of ['login:fail:*', '{*}:hits', '{*}:blocked']) {
+      const keys = await this.redis.keys(pattern);
+      if (keys.length) await this.redis.del(...keys);
+    }
   }
 
   /** 直接给钱包记账（等价于后台发放），用于准备「有钱」的初始状态。 */
@@ -159,6 +229,31 @@ export class E2eApp {
       if (all.length) await this.redis.del(...all);
     }
     this.userIds.length = 0;
+
+    // 后台侧：审计日志不带外键但会一直堆着，一并按 admin_user_id 删掉
+    for (const adminId of this.adminIds) {
+      await this.db.query(
+        `DELETE FROM admin_audit_log WHERE admin_user_id = $1`,
+        [adminId],
+      );
+      await this.db.query(
+        `DELETE FROM admin_user_role WHERE admin_user_id = $1`,
+        [adminId],
+      );
+      await this.db.query(`DELETE FROM admin_user WHERE id = $1`, [adminId]);
+    }
+    for (const code of this.adminRoleCodes) {
+      await this.db.query(
+        `DELETE FROM admin_role_permission WHERE role_id IN
+           (SELECT id FROM admin_role WHERE code = $1)`,
+        [code],
+      );
+      await this.db.query(`DELETE FROM admin_role WHERE code = $1`, [code]);
+    }
+    this.adminIds.length = 0;
+    this.adminRoleCodes.length = 0;
+    await this.resetThrottle();
+
     await this.app.close();
   }
 }

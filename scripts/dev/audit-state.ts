@@ -54,6 +54,29 @@ async function auditMigrations(
   }
 }
 
+/**
+ * 递归按键名排序后再序列化。
+ *
+ * 直接 `JSON.stringify` 比较会把「键顺序不同、内容完全一样」判成有差异：
+ * jsonb 读回来的键序由 Postgres 决定（短键在前），和代码字面量的书写顺序基本不可能一致。
+ * 头一版就是这么写的，28 项里报了 17 项「不同」，其中 15 项纯属键序 ——
+ * 一个天天喊狼来了的检查，等于没有这个检查。
+ */
+function canonical(v: unknown): string {
+  const sort = (x: unknown): unknown => {
+    if (Array.isArray(x)) return x.map(sort);
+    if (x && typeof x === 'object') {
+      return Object.fromEntries(
+        Object.entries(x as Record<string, unknown>)
+          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+          .map(([k, val]) => [k, sort(val)]),
+      );
+    }
+    return x;
+  };
+  return JSON.stringify(sort(v));
+}
+
 async function auditConfig(
   client: ReturnType<typeof makeClient>,
 ): Promise<void> {
@@ -88,7 +111,7 @@ async function auditConfig(
   const drifted = rows.filter((r) => {
     const entry = CONFIG_REGISTRY[r.key as keyof typeof CONFIG_REGISTRY] as
       { default: unknown } | undefined;
-    return entry && JSON.stringify(entry.default) !== JSON.stringify(r.value);
+    return entry && canonical(entry.default) !== canonical(r.value);
   });
   console.log(
     drifted.length === 0

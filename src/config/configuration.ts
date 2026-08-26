@@ -31,6 +31,13 @@ export default () => ({
   redis: {
     url: process.env.REDIS_URL,
   },
+  // 粗粒度限流的兜底额度。注意 @nestjs/throttler 把 handler 名一起哈希进计数键，
+  // 因此额度是「每 IP 每端点每窗口」而非全站合计——调这个数时别按总 QPS 估算。
+  // 登录端点另有更紧的上限，写死在 admin-auth.controller.ts 的 @Throttle 上。
+  throttle: {
+    ttlMs: parseInt(process.env.THROTTLE_TTL_MS ?? '60000', 10),
+    limit: parseInt(process.env.THROTTLE_LIMIT ?? '100', 10),
+  },
   jwt: {
     secret: process.env.JWT_SECRET,
     expiresIn: process.env.JWT_EXPIRES_IN ?? '7d',

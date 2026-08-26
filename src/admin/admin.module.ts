@@ -37,6 +37,7 @@ import { AdminExchangeService } from './ops/admin-exchange.service';
 import { AdminExchangeController } from './ops/admin-exchange.controller';
 import { AdminAuthController } from './auth/admin-auth.controller';
 import { AdminAuthService } from './auth/admin-auth.service';
+import { LoginThrottleService } from './auth/login-throttle.service';
 import { AdminAccessService } from './services/admin-access.service';
 import { AdminJwtAuthGuard } from './guards/admin-jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
@@ -108,6 +109,7 @@ import { AdminBootstrapService } from './admin-bootstrap.service';
   ],
   providers: [
     AdminAuthService,
+    LoginThrottleService,
     AdminAccessService,
     AdminAuditService,
     AdminPermissionService,

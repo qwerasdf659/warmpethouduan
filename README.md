@@ -121,7 +121,33 @@ npm run wipe:pre-launch -- --execute     # 真删（需手输「确认清档」�
 
 **PM2 常驻**（非「打包镜像」）。`ecosystem.config.js` 守护应用进程 + 本机 Redis。应用监听 `8080`，`main.ts` 绑 `0.0.0.0`。健康检查：`GET /health`。
 
+### 后台账号口令
+
+改超管口令用 `npm run admin:passwd`（不带参数则随机生成并打印）。它会**同时**更新数据库
+与 `.env` 的 `ADMIN_INIT_PASSWORD`——后者是重建数据库时的播种种子，两边必须一致。
+
+后台界面的「系统管理 → 管理员 → 重置密码」只改数据库，用它改完超管口令后 `.env`
+会静默过期，直到某天重建库才发现登不进去。应用启动时会比对两边，不一致打 WARN。
+给**其他**管理员改密走界面即可，他们的口令本来就不该记进 `.env`。
+
 ## 端口与入口
 
-- API：`/auth`、`/pet`、`/wallet`、`/daily`、`/race`、`/wardrobe`、`/home`、`/dex`、`/ad`、`/boost`、`/stamina`、`/exchange`、`/address`、`/admin/*`、`/health`
-- 运营后台：`/console`
+公网（Sealos DevBox 的 8080 端口，经 Istio 网关 HTTPS 暴露）：
+
+- 运营后台：<https://ocqeeuitbygc.sealosbja.site/console/>（登录页 `/console/login`）
+- 健康检查：<https://ocqeeuitbygc.sealosbja.site/health>
+
+域名由平台分配、不写在代码里（`scripts/deploy-admin.sh` 打印的是 `<域名>/console` 占位），
+换 DevBox 会变；在 Sealos 控制台该 DevBox 的网络栏可查。
+
+玩家端 API：`/auth`、`/pet`、`/wallet`、`/daily`、`/race`、`/home`、`/dex`、`/gacha`、
+`/promo`、`/items/consumables`、`/items/wardrobe`、`/boost`、`/boost/ad`、`/boost/stamina`、
+`/exchange`、`/exchange/address`
+
+后台 API 全部收在 `/admin/*` 下：`auth`、`players`、`wallet`、`config`、`items`、
+`exchange`、`promo`、`stats`、`audit-logs`、`idempotency`、`admin-users`、`roles`、
+`permissions`、`menus`
+
+> 装扮曾挂 `/wardrobe`、看广告曾挂 `/ad`、体力曾挂 `/stamina`、收货地址曾挂 `/address`，
+> 后台登录曾挂 `/auth/admin`——这些**旧路径已全部移除且不做兼容**，
+> 客户端须按上表调用。改动原委见 `docs/待办执行清单.md` 的「R 轮：路由收缩」。

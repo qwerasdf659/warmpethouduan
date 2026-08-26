@@ -8,7 +8,7 @@ import { AdminPermission } from '../entities/admin-permission.entity';
 import { AdminMenu } from '../entities/admin-menu.entity';
 import { LockService } from '../common/lock/lock.service';
 import { SUPER_ADMIN_ROLE } from './admin-principal';
-import { hashPassword } from './utils/password.util';
+import { hashPassword, verifyPassword } from './utils/password.util';
 import { SEED_MENUS, SEED_PERMISSIONS } from './admin-seed';
 
 /**
@@ -55,6 +55,7 @@ export class AdminBootstrapService implements OnApplicationBootstrap {
     const superRole = await this.ensureSuperAdminRole();
     await this.seedMissingMenus();
     await this.ensureInitialAdmin(superRole);
+    await this.warnIfInitPasswordStale();
   }
 
   private async syncPermissions(): Promise<void> {
@@ -163,5 +164,35 @@ export class AdminBootstrapService implements OnApplicationBootstrap {
     });
     await this.adminUsers.save(admin);
     this.logger.log(`已创建默认超管：${username}（请尽快登录改密）`);
+  }
+
+  /**
+   * 启动自检：`.env` 的 ADMIN_INIT_PASSWORD 是否还等于该账号的真实口令。
+   *
+   * 这个变量在代码里只有一个作用——库为空时播种，`ensureInitialAdmin` 一开头就
+   * `count() > 0 就 return`。但 `.env` 的注释把它同时当成了「口令备忘录」
+   * （压平迁移重建库时要靠它，理由写在那行注释里）。两个职责会打架：
+   * 后台「系统管理 → 管理员 → 重置密码」走的是 AdminUserService.resetPassword，
+   * 只改库不碰 `.env`，于是备忘录会**静默变成旧值**，等到下次重建库才发现登不进去。
+   *
+   * 这里不去消灭那个双职责（明文备忘是有意为之），只把静默漂移变成每次启动喊一声。
+   * 不打印任何口令内容；账号不存在或未配置口令都属正常，直接跳过。
+   * 想一次改好两边用 `npm run admin:passwd`，它会同时改库和 `.env`。
+   */
+  private async warnIfInitPasswordStale(): Promise<void> {
+    const username = this.config.get<string>('admin.initUsername') ?? 'admin';
+    const password = this.config.get<string>('admin.initPassword') ?? '';
+    if (!password) return;
+
+    const admin = await this.adminUsers.findOne({ where: { username } });
+    if (!admin) return;
+
+    if (!(await verifyPassword(password, admin.passwordHash))) {
+      this.logger.warn(
+        `.env 的 ADMIN_INIT_PASSWORD 与账号 ${username} 的实际口令已不一致。` +
+          '重建数据库时会按 .env 里的旧口令播种，届时将登录失败。' +
+          '用 `npm run admin:passwd` 改密可同时更新两边。',
+      );
+    }
   }
 }

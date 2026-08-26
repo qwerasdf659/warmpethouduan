@@ -10,6 +10,15 @@
  *   开发：  pm2 start ecosystem.config.js --only redis-server   # 只起本机 Redis
  *           npm run start:dev                                    # 应用用热重载
  *
+ * 日志轮转由 PM2 模块承担，不在本文件内——模块装在 PM2 守护进程上（~/.pm2），
+ * 换机或重建 DevBox 后不会随本仓库一起回来，须手工补：
+ *   pm2 install pm2-logrotate
+ *   pm2 set pm2-logrotate:max_size 10M        # 单文件上限
+ *   pm2 set pm2-logrotate:retain 14           # 保留份数
+ *   pm2 set pm2-logrotate:compress true       # 归档后 gzip
+ *   pm2 set pm2-logrotate:rotateInterval '0 0 * * *'
+ *   pm2 set pm2-logrotate:rotateModule true   # 连模块自身的日志一起轮转
+ *
  * 依据：docs/08-前后端技术框架与路线.md、docs/10-后端MVP实现方案（待评审）.md
  */
 

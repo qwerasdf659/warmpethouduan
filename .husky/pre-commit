@@ -1,4 +1,9 @@
 # 提交前卡口：只检查本次改动的文件，不自动修（自动修会把「代码有问题」这件事藏起来）。
 # 本项目不上 CI，卡口只有本地这一道，因此这里不放行任何 lint 报错。
 # 全量核对请用：npm run lint:check && npm run verify
+#
+# 卡口范围与 lint:check / verify:web 一致（src、test、scripts/dev、admin-web），
+# 三者范围不同就等于「本地过了、全量挂了」。
+# 例外：admin-web 那条跑的是整个子项目而非暂存文件——biome 与 prettier 要以
+# admin-web 为 cwd 才能找到自己的配置，逐文件传参反而读不到规则。它只需 1s 左右。
 npx lint-staged

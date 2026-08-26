@@ -7,6 +7,7 @@ import { AdminUser } from '../../entities/admin-user.entity';
 import { ADMIN_TOKEN_TYPE, AdminJwtPayload } from '../admin-principal';
 import { verifyPassword } from '../utils/password.util';
 import { AdminAccessService } from '../services/admin-access.service';
+import { LoginThrottleService } from './login-throttle.service';
 
 export interface AdminProfile {
   id: string;
@@ -30,26 +31,40 @@ export class AdminAuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly access: AdminAccessService,
+    private readonly throttle: LoginThrottleService,
   ) {}
 
   /**
-   * 后台登录：用户名+口令校验 → 校验状态 → 自签带 typ:'admin' 的 JWT。
-   * 用户名不存在与口令错误返回同一提示，避免账号枚举。
+   * 后台登录：频控 → 用户名+口令校验 → 校验状态 → 自签带 typ:'admin' 的 JWT。
+   * 用户名不存在、口令错误、被频控锁定三种情况返回同一提示，避免账号枚举与口令预言。
    */
-  async login(username: string, password: string): Promise<AdminLoginResult> {
+  async login(
+    username: string,
+    password: string,
+    ip: string,
+  ): Promise<AdminLoginResult> {
+    // 必须在校验口令之前：锁定期内即使口令正确也不放行
+    await this.throttle.assertNotLocked(username, ip);
+
     const admin = await this.adminUsers.findOne({ where: { username } });
     const invalid = new UnauthorizedException('用户名或密码错误');
     if (!admin) {
       // 仍做一次散列比较，抹平存在/不存在的时间差
       await verifyPassword(password, 'scrypt$00$00');
+      await this.throttle.recordFailure(username, ip);
       throw invalid;
     }
     const ok = await verifyPassword(password, admin.passwordHash);
-    if (!ok) throw invalid;
+    if (!ok) {
+      await this.throttle.recordFailure(username, ip);
+      throw invalid;
+    }
     if (admin.status !== 'active') {
+      // 停用是管理动作而非口令猜测，不计入失败计数
       throw new UnauthorizedException('管理员已被停用');
     }
 
+    await this.throttle.clearFailures(username);
     admin.lastLoginAt = new Date();
     await this.adminUsers.save(admin);
 
