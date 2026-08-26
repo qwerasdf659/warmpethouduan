@@ -727,6 +727,12 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       // 清掉限流计数，保证这一波并发不会撞上 @nestjs/throttler 的 429
       await e2e.resetThrottle();
 
+      // 并发前先让 server 监听一次：否则 supertest 会为每个并发请求各自 listen(0)，
+      // 同一 Server 实例被并发 listen 会互相打断，表现为 ECONNRESET（与被测逻辑无关）。
+      if (!server.listening) {
+        await new Promise<void>((resolve) => server.listen(0, () => resolve()));
+      }
+
       const cfg = await e2e.app.get(GameConfigService).get('boost.ad_token');
       const cap = cfg.dailyCapPerScene;
       const burst = cap + 6; // 超过上限，逼出竞态
