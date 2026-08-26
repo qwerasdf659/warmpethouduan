@@ -17,7 +17,9 @@ const dist = '/home/devbox/project/dist/';
 const { NestFactory } = require(P + '@nestjs/core');
 const { AppModule } = require(dist + 'app.module');
 const { ExchangeService } = require(dist + 'exchange/exchange.service');
-const { AdminExchangeService } = require(dist + 'admin/ops/admin-exchange.service');
+const { AdminExchangeService } = require(
+  dist + 'admin/ops/admin-exchange.service',
+);
 const { GameConfigService } = require(dist + 'config/game-config.service');
 
 const KEY = 'plush_toy';
@@ -49,9 +51,7 @@ async function main() {
   ).rows[0].value;
 
   async function setCatalog(patch) {
-    const next = origItems.map((i) =>
-      i.key === KEY ? { ...i, ...patch } : i,
-    );
+    const next = origItems.map((i) => (i.key === KEY ? { ...i, ...patch } : i));
     await pg.query(
       `UPDATE game_config SET value = $1 WHERE key = 'exchange.items'`,
       [JSON.stringify(next)],
@@ -93,7 +93,9 @@ async function main() {
     const u = await newPlayer(10000);
 
     const first = await exchange.redeem(u.id, KEY, 'biz-1', u.addr);
-    console.log(`[A] 首单 status=${first.order.status} 余额=${await points(u.id)}`);
+    console.log(
+      `[A] 首单 status=${first.order.status} 余额=${await points(u.id)}`,
+    );
 
     let denied = null;
     try {
@@ -124,10 +126,10 @@ async function main() {
 
     // -------------------------------------------------------------------- [D]
     await setCatalog({ stock: null, perUserLimit: null });
-    await pg.query(`DELETE FROM redeem_order WHERE exchange_key = $1 AND user_id = ANY($2)`, [
-      KEY,
-      users,
-    ]);
+    await pg.query(
+      `DELETE FROM redeem_order WHERE exchange_key = $1 AND user_id = ANY($2)`,
+      [KEY, users],
+    );
     const sold = Number(
       (
         await pg.query(
@@ -146,17 +148,16 @@ async function main() {
     );
     const ok = results.filter((r) => r.status === 'fulfilled').length;
     const balances = await Promise.all(rushers.map((r) => points(r.id)));
-    const refundedAll = results.every(
-      (r, i) => (r.status === 'fulfilled' ? balances[i] === 8000 : balances[i] === 10000),
+    const refundedAll = results.every((r, i) =>
+      r.status === 'fulfilled' ? balances[i] === 8000 : balances[i] === 10000,
     );
-    console.log(
-      `[D] 8 人抢 1 件：成功 ${ok} 单、失败 ${8 - ok} 单`,
-    );
+    console.log(`[D] 8 人抢 1 件：成功 ${ok} 单、失败 ${8 - ok} 单`);
     console.log(
       ok === 1 ? '✓ 没有超卖' : `✗ 超卖了 ${ok} 件`,
       refundedAll ? '｜✓ 落败者积分分文未动' : '｜✗ 有人被扣了钱却没拿到货',
     );
-    const reason = results.find((r) => r.status === 'rejected')?.reason?.message;
+    const reason = results.find((r) => r.status === 'rejected')?.reason
+      ?.message;
     if (reason) console.log(`    落败者收到：${reason}`);
   } finally {
     await pg.query(

@@ -32,7 +32,10 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <PageContainer header={{ title: '数据看板' }} loading={loading && !overview}>
+    <PageContainer
+      header={{ title: '数据看板' }}
+      loading={loading && !overview}
+    >
       <ProCard gutter={16} wrap>
         <StatisticCard
           colSpan={{ xs: 24, sm: 12, md: 6 }}
@@ -47,7 +50,10 @@ export default function DashboardPage() {
         />
         <StatisticCard
           colSpan={{ xs: 24, sm: 12, md: 6 }}
-          statistic={{ title: '今日活跃(DAU)', value: overview?.players.dauToday ?? 0 }}
+          statistic={{
+            title: '今日活跃(DAU)',
+            value: overview?.players.dauToday ?? 0,
+          }}
         />
         <StatisticCard
           colSpan={{ xs: 24, sm: 12, md: 6 }}

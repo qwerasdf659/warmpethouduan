@@ -46,7 +46,12 @@ export default function ItemsPage() {
       render: (_, r) => <Tag>{typeText[r.type] ?? r.type}</Tag>,
     },
     { title: '名称', dataIndex: 'name', hideInSearch: true },
-    { title: '槽位', dataIndex: 'slot', hideInSearch: true, render: (v) => (v as string) ?? '-' },
+    {
+      title: '槽位',
+      dataIndex: 'slot',
+      hideInSearch: true,
+      render: (v) => (v as string) ?? '-',
+    },
     { title: '价格', dataIndex: 'price', width: 80, hideInSearch: true },
     {
       title: '池',
@@ -178,8 +183,17 @@ function ItemForm({
         />
       ) : null}
       <ProFormText name="name" label="名称" rules={[{ required: true }]} />
-      <ProFormText name="slot" label="槽位" placeholder="皮肤 body / 配饰 hat；家具留空" />
-      <ProFormDigit name="price" label="价格" min={0} rules={[{ required: true }]} />
+      <ProFormText
+        name="slot"
+        label="槽位"
+        placeholder="皮肤 body / 配饰 hat；家具留空"
+      />
+      <ProFormDigit
+        name="price"
+        label="价格"
+        min={0}
+        rules={[{ required: true }]}
+      />
       <ProFormSelect
         name="pool"
         label="积分池"

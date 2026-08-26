@@ -26,30 +26,6 @@ import { ExchangeModule } from './exchange/exchange.module';
 import { PromoModule } from './promo/promo.module';
 import { GachaModule } from './gacha/gacha.module';
 import { AdminModule } from './admin/admin.module';
-import { PromoCode } from './entities/promo-code.entity';
-import { PromoRedemption } from './entities/promo-redemption.entity';
-import { GachaDraw } from './entities/gacha-draw.entity';
-import { GachaState } from './entities/gacha-state.entity';
-import { User } from './entities/user.entity';
-import { Pet } from './entities/pet.entity';
-import { Wallet } from './entities/wallet.entity';
-import { Ledger } from './entities/ledger.entity';
-import { Daily } from './entities/daily.entity';
-import { RaceRecord } from './entities/race-record.entity';
-import { ItemDef } from './entities/item-def.entity';
-import { ItemOwned } from './entities/item-owned.entity';
-import { PetEquip } from './entities/pet-equip.entity';
-import { HomeLayout } from './entities/home-layout.entity';
-import { HomeStat } from './entities/home-stat.entity';
-import { DexClaim } from './entities/dex-claim.entity';
-import { UserAddress } from './entities/user-address.entity';
-import { RedeemOrder } from './entities/redeem-order.entity';
-import { GameConfig } from './entities/game-config.entity';
-import { AdminUser } from './entities/admin-user.entity';
-import { AdminRole } from './entities/admin-role.entity';
-import { AdminPermission } from './entities/admin-permission.entity';
-import { AdminMenu } from './entities/admin-menu.entity';
-import { AdminAuditLog } from './entities/admin-audit-log.entity';
 
 @Module({
   imports: [
@@ -68,32 +44,11 @@ import { AdminAuditLog } from './entities/admin-audit-log.entity';
         username: config.get<string>('db.user'),
         password: config.get<string>('db.password'),
         database: config.get<string>('db.name'),
-        entities: [
-          User,
-          Pet,
-          Wallet,
-          Ledger,
-          Daily,
-          RaceRecord,
-          ItemDef,
-          ItemOwned,
-          PetEquip,
-          HomeLayout,
-          HomeStat,
-          DexClaim,
-          UserAddress,
-          RedeemOrder,
-          PromoCode,
-          PromoRedemption,
-          GachaDraw,
-          GachaState,
-          GameConfig,
-          AdminUser,
-          AdminRole,
-          AdminPermission,
-          AdminMenu,
-          AdminAuditLog,
-        ],
+        // 与 data-source.ts 同样用通配，实体注册表只有 src/entities/ 这一份真相源。
+        // 曾经这里是显式数组：新增实体漏登记就运行时炸，而 data-source 那边漏登记会让
+        // migration:generate 把「未注册」的表判成多余并生成 DROP TABLE。
+        // `{.ts,.js}` 两种后缀都要：ts-jest/e2e 从 src 跑，生产从 dist 跑。
+        entities: [join(__dirname, 'entities', '*.entity{.ts,.js}')],
         synchronize: false,
         // fail-fast：连接失败时快速报错退出，而非长时间静默重试
         retryAttempts: config.get<string>('env') === 'production' ? 5 : 2,

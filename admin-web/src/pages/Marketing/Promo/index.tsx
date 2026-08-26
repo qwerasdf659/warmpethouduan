@@ -125,7 +125,9 @@ function BatchTab() {
       width: 110,
       render: (_, r) => (
         // 两者不等 = 有「占了次数但入账失败」的记录，必须让运营看见而不是算平
-        <span style={{ color: r.redemptions === r.usedUses ? undefined : 'red' }}>
+        <span
+          style={{ color: r.redemptions === r.usedUses ? undefined : 'red' }}
+        >
           {r.redemptions}
         </span>
       ),

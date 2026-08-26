@@ -5,7 +5,8 @@ import { GameConfigService } from '../config/game-config.service';
 import { EconomyService } from '../economy/economy.service';
 import { DexClaim } from '../entities/dex-claim.entity';
 import { ItemsService } from '../items/items.service';
-import { PetService, PetStateView } from '../pet/pet.service';
+import type { PetStateView } from '../pet/pet-math';
+import { PetService } from '../pet/pet.service';
 import { DexEntry } from './dex.config';
 import { DexService } from './dex.service';
 

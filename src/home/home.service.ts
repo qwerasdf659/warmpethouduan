@@ -10,7 +10,7 @@ import { GameConfigService } from '../config/game-config.service';
 import { comfortFactorOf } from '../pet/pet.config';
 import { ItemDef } from '../entities/item-def.entity';
 import { HomeLayout } from '../entities/home-layout.entity';
-import { HomeStat } from '../entities/home-stat.entity';
+import { HomeComfortService } from './home-comfort.service';
 import { ItemsService } from '../items/items.service';
 import {
   HomeGrid,
@@ -54,21 +54,21 @@ export interface HomeView {
 }
 
 /**
- * 家园：家具购买（走 ItemsService）+ 摆放/收纳。摆放增量维护 home_stat.comfort，
- * comfort 决定宠物心情衰减减免 comfortFactor（供 PetService 读取）。
+ * 家园：家具购买（走 ItemsService）+ 摆放/收纳。舒适度不落快照，
+ * 由 HomeComfortService 从已摆放家具实时聚合；comfort 决定宠物心情衰减减免
+ * comfortFactor（PetService 读同一个口径）。
  */
 @Injectable()
 export class HomeService {
   constructor(
     @InjectRepository(HomeLayout)
     private readonly layouts: Repository<HomeLayout>,
-    @InjectRepository(HomeStat)
-    private readonly stats: Repository<HomeStat>,
     @InjectRepository(ItemDef)
     private readonly defs: Repository<ItemDef>,
     private readonly items: ItemsService,
     private readonly lock: LockService,
     private readonly config: GameConfigService,
+    private readonly comfortOf: HomeComfortService,
   ) {}
 
   async getHome(userId: string): Promise<HomeView> {
@@ -78,7 +78,7 @@ export class HomeService {
       where: { userId },
       order: { id: 'ASC' },
     });
-    const comfort = await this.readComfort(userId);
+    const comfort = await this.comfortOf.comfortOf(userId);
 
     const placedCount = new Map<string, number>();
     for (const l of layouts) {
@@ -176,21 +176,18 @@ export class HomeService {
           posY: spot.y,
         }),
       );
-      await this.addComfort(userId, def.comfort);
       return this.getHome(userId);
     });
   }
 
-  /** 收纳一件家具，扣减舒适度。 */
+  /** 收纳一件家具。舒适度随摆放行消失自动下降，无需另行维护。 */
   async remove(userId: string, layoutId: string): Promise<HomeView> {
     return this.lock.withLock(`pet:${userId}`, async () => {
       const row = await this.layouts.findOne({
         where: { id: layoutId, userId },
       });
       if (!row) throw new NotFoundException('摆放记录不存在');
-      const def = await this.defs.findOne({ where: { id: row.itemDefId } });
       await this.layouts.delete({ id: row.id });
-      await this.addComfort(userId, -(def?.comfort ?? 0));
       return this.getHome(userId);
     });
   }
@@ -236,20 +233,5 @@ export class HomeService {
       throw new BadRequestException('该位置已有家具，请换个位置');
     }
     return { x: posX, y: posY };
-  }
-
-  private async readComfort(userId: string): Promise<number> {
-    const stat = await this.stats.findOne({ where: { userId } });
-    return stat?.comfort ?? 0;
-  }
-
-  /** 增量维护 home_stat.comfort（不存在则建行），下限 0。 */
-  private async addComfort(userId: string, delta: number): Promise<void> {
-    let stat = await this.stats.findOne({ where: { userId } });
-    if (!stat) {
-      stat = this.stats.create({ userId, comfort: 0 });
-    }
-    stat.comfort = Math.max(0, stat.comfort + delta);
-    await this.stats.save(stat);
   }
 }

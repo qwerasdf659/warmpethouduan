@@ -138,9 +138,6 @@ export class ItemsService implements OnApplicationBootstrap {
    * 必须留这个入口：Redis 锁不可重入，持锁者再调 `grant` 会抢不到自己已持有的锁，
    * 重试到超时后抛 409。而这类调用往往包在 try/catch 的降级分支里，
    * 结果就是功能**静默失效**——兑换的「即时到账」一度就是这样从未生效过。
-   *
-   * 入库用条件 upsert 而非「先读后写」：调用方虽已串行化本玩家，
-   * 但后台补发等旁路可能不持同一把锁。
    */
   async grantUnlocked(
     userId: string,
@@ -150,7 +147,25 @@ export class ItemsService implements OnApplicationBootstrap {
     const def = await this.getDefByKey(itemKey);
     if (!def) throw new NotFoundException('物品不存在');
     const n = Math.max(1, Math.trunc(qty));
+    return {
+      itemKey: def.key,
+      qty: await this.addOwned(userId, def.id, n),
+      granted: n,
+    };
+  }
 
+  /**
+   * 背包加量的**唯一**写法：单语句条件 upsert。
+   *
+   * 与 `consumeOwned` 的条件扣减对称。不要退化成「先读 qty 再 +n 再 save」——
+   * 持锁只串行化了同一玩家的主链路，后台补发、扭蛋发奖等旁路未必持同一把锁，
+   * 读-改-写在那种交叠下会丢掉一次增量。
+   */
+  private async addOwned(
+    userId: string,
+    itemDefId: string,
+    n: number,
+  ): Promise<number> {
     const rows = rowsOf<{ qty: number }>(
       await this.owned.query(
         `INSERT INTO item_owned (user_id, item_def_id, qty)
@@ -158,10 +173,10 @@ export class ItemsService implements OnApplicationBootstrap {
          ON CONFLICT (user_id, item_def_id)
          DO UPDATE SET qty = item_owned.qty + $3
          RETURNING qty`,
-        [userId, def.id, n],
+        [userId, itemDefId, n],
       ),
     );
-    return { itemKey: def.key, qty: Number(rows[0].qty), granted: n };
+    return Number(rows[0].qty);
   }
 
   /**
@@ -232,21 +247,14 @@ export class ItemsService implements OnApplicationBootstrap {
       });
 
       let qty: number;
-      const cur = await this.owned.findOne({
-        where: { userId, itemDefId: def.id },
-      });
       if (applied.duplicated) {
-        // 已处理过：只回读当前持有量，不重复入库
+        // 幂等回放：扣费没真的发生，入库也不能重放，只回读当前持有量
+        const cur = await this.owned.findOne({
+          where: { userId, itemDefId: def.id },
+        });
         qty = cur?.qty ?? 0;
-      } else if (cur) {
-        cur.qty += n;
-        qty = (await this.owned.save(cur)).qty;
       } else {
-        qty = (
-          await this.owned.save(
-            this.owned.create({ userId, itemDefId: def.id, qty: n }),
-          )
-        ).qty;
+        qty = await this.addOwned(userId, def.id, n);
       }
 
       return {

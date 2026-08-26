@@ -9,7 +9,7 @@ import { In, Repository } from 'typeorm';
 import { AdminUser } from '../../entities/admin-user.entity';
 import { AdminRole } from '../../entities/admin-role.entity';
 import { hashPassword } from '../utils/password.util';
-import { PaginationDto } from '../dto/pagination.dto';
+import { PaginationDto } from '../../common/dto/pagination.dto';
 import {
   AssignUserRolesDto,
   CreateAdminUserDto,

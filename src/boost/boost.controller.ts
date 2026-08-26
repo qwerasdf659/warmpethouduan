@@ -20,8 +20,13 @@ import {
 import { AdTokenService } from './ad-token.service';
 import { BoostService } from './boost.service';
 
-/** 激励视频广告奖励 + 增值场景的一次性凭证签发。 */
-@Controller('ad')
+/**
+ * 激励视频广告奖励 + 增值场景的一次性凭证签发。
+ *
+ * 本模块统一挂在 `boost/` 下（曾经散成 `/ad`、`/boost`、`/stamina` 三个顶级前缀，
+ * 同一个 BoostService 却要在三处找入口）。一个模块一个前缀，与 pet/race/home 一致。
+ */
+@Controller('boost/ad')
 @UseGuards(JwtAuthGuard, PlayerStatusGuard)
 export class AdController {
   constructor(
@@ -30,7 +35,7 @@ export class AdController {
   ) {}
 
   /**
-   * 广告奖励发放。需先 `POST /ad/token`（scene=ad_reward）领凭证，
+   * 广告奖励发放。需先 `POST /boost/ad/token`（scene=ad_reward）领凭证，
    * 播完广告后带 `adToken` 来核销 —— 与赛跑增值接口同一套风控。
    */
   @Post('verify')
@@ -42,7 +47,7 @@ export class AdController {
 
   /**
    * 领取一次性广告凭证（nonce）。播完激励视频后，把 nonce 作为 `adToken`
-   * 传给对应的接口核销（`/ad/verify`、`/race/reward/double`、`/race/revive`）。
+   * 传给对应的接口核销（`/boost/ad/verify`、`/race/reward/double`、`/race/revive`）。
    * 不幂等：每次调用签发一枚新凭证，受该 scene 的每日上限约束。
    */
   @Post('token')
@@ -66,7 +71,7 @@ export class BoostController {
 }
 
 /** 体力恢复。 */
-@Controller('stamina')
+@Controller('boost/stamina')
 @UseGuards(JwtAuthGuard, PlayerStatusGuard)
 export class StaminaController {
   constructor(private readonly boost: BoostService) {}

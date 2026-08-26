@@ -17,7 +17,7 @@ import { RequirePermissions } from '../decorators/permissions.decorator';
 import { Audit } from '../decorators/audit.decorator';
 import { AdminAuditInterceptor } from '../audit/admin-audit.interceptor';
 import { AdminUserService } from './admin-user.service';
-import { PaginationDto } from '../dto/pagination.dto';
+import { PaginationDto } from '../../common/dto/pagination.dto';
 import {
   AssignUserRolesDto,
   CreateAdminUserDto,

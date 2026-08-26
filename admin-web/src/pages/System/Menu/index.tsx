@@ -12,12 +12,7 @@ import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { Access, useAccess } from '@umijs/max';
 import { Button, message, Popconfirm, Tag } from 'antd';
 import { useEffect, useRef, useState } from 'react';
-import {
-  createMenu,
-  deleteMenu,
-  listMenus,
-  updateMenu,
-} from '@/services/menu';
+import { createMenu, deleteMenu, listMenus, updateMenu } from '@/services/menu';
 import { listPermissions } from '@/services/permission';
 import type { MenuNode, Permission } from '@/types';
 
@@ -34,7 +29,9 @@ export default function MenuPage() {
   const [perms, setPerms] = useState<Permission[]>([]);
 
   useEffect(() => {
-    listPermissions().then(setPerms).catch(() => void 0);
+    listPermissions()
+      .then(setPerms)
+      .catch(() => void 0);
   }, []);
 
   const parentOptions = [
@@ -62,8 +59,16 @@ export default function MenuPage() {
         rules={[{ required: true }]}
       />
       <ProFormSelect name="parentId" label="上级" options={parentOptions} />
-      <ProFormText name="path" label="路由 path" placeholder="如 /system/roles" />
-      <ProFormText name="component" label="组件路径" placeholder="如 ./System/Role" />
+      <ProFormText
+        name="path"
+        label="路由 path"
+        placeholder="如 /system/roles"
+      />
+      <ProFormText
+        name="component"
+        label="组件路径"
+        placeholder="如 ./System/Role"
+      />
       <ProFormText name="icon" label="图标" placeholder="如 SettingOutlined" />
       <ProFormSelect
         name="permissionCode"

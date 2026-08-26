@@ -16,10 +16,12 @@
     "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,
-    "strictNullChecks": true,
+    "strict": true,
+    // 唯一豁免项：实体/DTO 的属性由 TypeORM 与 class-validator 在运行时赋值，
+    // 构造函数里并不初始化。开着它只能靠给 300 多个属性加 `!` 来消音，
+    // 那是纯噪音且会掩盖真正的未初始化问题。其余 strict 子项全部生效。
+    "strictPropertyInitialization": false,
     "forceConsistentCasingInFileNames": true,
-    "noImplicitAny": true,
-    "strictBindCallApply": true,
     "noFallthroughCasesInSwitch": false
   },
   "exclude": ["node_modules", "dist", "admin-web"]

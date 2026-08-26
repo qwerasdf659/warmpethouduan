@@ -55,7 +55,7 @@ import { AdminBootstrapService } from './admin-bootstrap.service';
 
 /**
  * 后台管理域（RBAC + 审计）。与玩家端 AuthModule 完全隔离：
- *  - 独立鉴权 /auth/admin/login（typ:'admin' 的 JWT）
+ *  - 独立鉴权 /admin/auth/login（typ:'admin' 的 JWT）
  *  - /admin/* 受 AdminJwtAuthGuard + RolesGuard 保护
  *  - 写操作经 AdminAuditInterceptor 落审计
  * LockService/ClockService 来自全局 CommonModule。

@@ -54,8 +54,8 @@ export class ExchangeController {
   }
 }
 
-/** 收货地址。 */
-@Controller('address')
+// 收货地址只为实物兑换存在（下单要求 addressId），归入 exchange/ 而非另起顶级前缀。
+@Controller('exchange/address')
 @UseGuards(JwtAuthGuard, PlayerStatusGuard)
 export class AddressController {
   constructor(private readonly address: AddressService) {}

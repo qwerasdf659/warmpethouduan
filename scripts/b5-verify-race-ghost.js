@@ -38,7 +38,9 @@ async function makeUser(c, tag) {
   const id = (
     await c.query(
       `insert into "user" (openid, status) values ($1,'active') returning id`,
-      [`b5_ghost_${tag}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`],
+      [
+        `b5_ghost_${tag}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      ],
     )
   ).rows[0].id;
   userIds.push(id);
@@ -71,7 +73,9 @@ async function main() {
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error'],
   });
-  const { RaceService } = require('/home/devbox/project/dist/race/race.service');
+  const {
+    RaceService,
+  } = require('/home/devbox/project/dist/race/race.service');
   const race = app.get(RaceService);
 
   const c = db();
@@ -90,10 +94,15 @@ async function main() {
     await makePet(c, solo, LEVEL, 100);
     const r1 = await race.start(solo, TRACK, `ghost-a-${Date.now()}`);
     check('无可采样成绩时退回 NPC', r1.ghostSource === 'npc', r1.ghostSource);
-    check('产出完赛时间与评级', r1.finishTime > 0 && !!r1.grade, `${r1.finishTime}s ${r1.grade}`);
+    check(
+      '产出完赛时间与评级',
+      r1.finishTime > 0 && !!r1.grade,
+      `${r1.finishTime}s ${r1.grade}`,
+    );
     check(
       '名次与完赛时间自洽',
-      r1.rank === 1 + r1.opponentFinishTimes.filter((t) => t < r1.finishTime).length,
+      r1.rank ===
+        1 + r1.opponentFinishTimes.filter((t) => t < r1.finishTime).length,
     );
 
     // ------------------------------------------------- B. 采到真实玩家成绩
@@ -109,11 +118,19 @@ async function main() {
     const hunter = await makeUser(c, 'hunter');
     await makePet(c, hunter, LEVEL, 100);
     const r2 = await race.start(hunter, TRACK, `ghost-b-${Date.now()}`);
-    check('有足够真实成绩时采真人影子', r2.ghostSource === 'player', r2.ghostSource);
+    check(
+      '有足够真实成绩时采真人影子',
+      r2.ghostSource === 'player',
+      r2.ghostSource,
+    );
     const sampledFromSeed = r2.opponentFinishTimes.every((t) =>
       ghosts.some((g) => Math.abs(g - t) < 0.01),
     );
-    check('对手时间来自灌入的真实成绩', sampledFromSeed, JSON.stringify(r2.opponentFinishTimes));
+    check(
+      '对手时间来自灌入的真实成绩',
+      sampledFromSeed,
+      JSON.stringify(r2.opponentFinishTimes),
+    );
 
     // --------------------------------------------- C. 等级带外的成绩不采
     const farUser = await makeUser(c, 'far');
@@ -127,10 +144,10 @@ async function main() {
     );
 
     // ------------------------------------------------- D. 异常值被钳制
-    await c.query(`delete from race_record where track_key = $1 and pet_level = $2`, [
-      TRACK,
-      LEVEL,
-    ]);
+    await c.query(
+      `delete from race_record where track_key = $1 and pet_level = $2`,
+      [TRACK, LEVEL],
+    );
     for (let i = 0; i < 3; i++) {
       const u = await makeUser(c, `cheat${i}`);
       const p = await makePet(c, u, LEVEL, 100);

@@ -1,0 +1,10 @@
+# 风格规则不在这里 —— 统一取仓库根的 .prettierrc（prettier 会向上查找）。
+# 本文件只列 admin-web 自己的产物目录：ignore 清单天然是每个包各管各的。
+
+# Umi 生成目录（每次 dev/build 重写，格式化它们只会制造噪音 diff）
+src/.umi/
+src/.umi-production/
+
+dist/
+node_modules/
+pnpm-lock.yaml

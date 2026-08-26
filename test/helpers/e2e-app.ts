@@ -139,7 +139,6 @@ export class E2eApp {
         'user_address',
         'dex_claim',
         'home_layout',
-        'home_stat',
         'pet_equip',
         'item_owned',
         'race_record',

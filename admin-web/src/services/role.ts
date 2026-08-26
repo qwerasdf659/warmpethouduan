@@ -37,13 +37,3 @@ export async function setRolePermissions(
     data: { permissionIds },
   });
 }
-
-export async function setRoleMenus(
-  id: string,
-  menuIds: string[],
-): Promise<Role> {
-  return request(`/admin/roles/${id}/menus`, {
-    method: 'PUT',
-    data: { menuIds },
-  });
-}

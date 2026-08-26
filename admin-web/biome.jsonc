@@ -1,0 +1,33 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.10/schema.json",
+  "files": {
+    "includes": [
+      "src/**/*.ts",
+      "src/**/*.tsx",
+      ".umirc.ts",
+      // Umi 生成目录。之前没排除，导致这个 lint 从来没绿过（120 个报错文件里
+      // 84 个是生成代码），等于一个装饰性卡口。
+      "!src/.umi",
+      "!src/.umi-production",
+    ],
+  },
+  // 格式化统一交给 prettier（全仓唯一风格来源：仓库根的 .prettierrc）。
+  // 两个格式化器并存必然互相回改，所以这里只保留 lint 能力。
+  "formatter": { "enabled": false },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      // 内部运营后台：ProTable 操作列用的是 Ant Design Pro 的官方惯用法
+      // `<a onClick>`，这三条会把每一个表格操作项都判成错误。改写成 Button
+      // 纯粹为了消音，本工具也没有读屏使用场景，故明确关闭而非逐处 ignore。
+      "a11y": {
+        "useValidAnchor": "off",
+        "useKeyWithClickEvents": "off",
+        "noStaticElementInteractions": "off",
+      },
+      "suspicious": { "noExplicitAny": "off" },
+      "style": { "useImportType": "off" },
+    },
+  },
+}

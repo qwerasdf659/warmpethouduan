@@ -42,6 +42,14 @@ export const envValidationSchema = Joi.object({
   // 微信小游戏
   WECHAT_APPID: Joi.string().required(),
   WECHAT_SECRET: Joi.string().required(),
+  /**
+   * 小程序代码上传私钥的路径（对应 `secrets/private.wx*.key`）。
+   *
+   * ⚠ 本服务的运行时代码**不读它**，grep 不到消费方是正常的。它属于发版链路
+   * （miniprogram-ci / 微信开发者工具上传），密钥文件本身不可再生——微信平台
+   * 只在生成时给一次下载机会，删了要重新生成并重配 CI。所以此处只做存在性
+   * 校验与说明，不要因为"没人用"而清理。
+   */
   WECHAT_UPLOAD_PRIVATE_KEY_PATH: Joi.string().optional(),
   /**
    * 联调开关：允许用 `mock:<标识>` 形式的假 code 直接换取 JWT，免真机拿 code。
@@ -60,7 +68,14 @@ export const envValidationSchema = Joi.object({
       }),
     }),
 
-  // Sealos 对象存储（M1 可选，后期用到再置为 required）
+  /**
+   * Sealos 对象存储（S3 兼容）。**预留，当前无代码消费方。**
+   *
+   * 保留原因：宠物形象/装扮图资最终要走对象存储，而这几个值是 Sealos 控制台
+   * 生成的成对凭证，散落在环境里比重新申请一遍便宜。等真正接入上传时，把用到
+   * 的那几项从 optional 改 required，届时校验才有意义——现在设成 required 只会
+   * 让本地起不来。
+   */
   SEALOS_BUCKET: Joi.string().optional(),
   SEALOS_BUCKET_ACL: Joi.string().optional(),
   SEALOS_ACCESS_KEY: Joi.string().optional(),

@@ -4,14 +4,14 @@
 
 ## 技术栈
 
-| 领域 | 选型 |
-| --- | --- |
-| 框架 | NestJS 11 + TypeScript 5 + Node.js 22 |
-| 持久层 | PostgreSQL 16（Sealos 托管）+ TypeORM（`synchronize:false`，**只走迁移**） |
-| 缓存 / 锁 / 幂等 | Redis 7（DevBox 本机，PM2 守护 + AOF）+ ioredis，统一 `REDIS_URL` |
-| 鉴权 | `@nestjs/jwt`（玩家 JWT + 后台 RBAC） |
-| 配置 | `@nestjs/config` + Joi 校验 |
-| 运营后台 | Ant Design Pro（`admin-web/`，构建产物挂载于 `/console`） |
+| 领域             | 选型                                                                       |
+| ---------------- | -------------------------------------------------------------------------- |
+| 框架             | NestJS 11 + TypeScript 5 + Node.js 22                                      |
+| 持久层           | PostgreSQL 16（Sealos 托管）+ TypeORM（`synchronize:false`，**只走迁移**） |
+| 缓存 / 锁 / 幂等 | Redis 7（DevBox 本机，PM2 守护 + AOF）+ ioredis，统一 `REDIS_URL`          |
+| 鉴权             | `@nestjs/jwt`（玩家 JWT + 后台 RBAC）                                      |
+| 配置             | `@nestjs/config` + Joi 校验                                                |
+| 运营后台         | Ant Design Pro（`admin-web/`，构建产物挂载于 `/console`）                  |
 
 ## 架构铁律
 
@@ -22,19 +22,19 @@
 
 ## 功能模块
 
-| 模块 | 目录 | 说明 |
-| --- | --- | --- |
-| 鉴权 | `src/auth` | 微信 `code2Session` 登录 → 自签 JWT |
-| 宠物 | `src/pet` | 四动作照顾（feed/bath/pet/play）+ 惰性衰减结算 + 成长 + 多宠 + 离线收益 |
-| 经济 | `src/economy` | 双积分账户（游戏币 / 营销积分）+ 单边流水账本，唯一记账入口 `EconomyService.apply` |
-| 每日 | `src/daily` | 签到（连签奖励）+ 每日任务领奖 |
-| 赛跑 | `src/race` | 赛道 + 服务端权威结算（三围 speed/stamina/endurance）+ 名次奖励 |
-| 换装 | `src/items` | 目录 / 拥有 / 穿戴，购买扣币 |
-| 家园 | `src/home` | 家具布局 + 舒适度 `comfortFactor` 回流心情衰减 |
-| 图鉴 | `src/dex` | 点亮 + 系列集齐奖励 |
-| 变现 | `src/boost` | 激励广告核销 / 加速 / 体力恢复 |
-| 兑换履约 | `src/exchange` | 虚拟 + 实物兑换、收货地址、兑换订单 |
-| 运营后台 | `src/admin` | RBAC + 审计 + 玩家管理 + 全局流水 + 人工发币 + 数据看板 + 配置中心 + `*_def` CRUD + 兑换管理 |
+| 模块     | 目录           | 说明                                                                                         |
+| -------- | -------------- | -------------------------------------------------------------------------------------------- |
+| 鉴权     | `src/auth`     | 微信 `code2Session` 登录 → 自签 JWT                                                          |
+| 宠物     | `src/pet`      | 四动作照顾（feed/bath/pet/play）+ 惰性衰减结算 + 成长 + 多宠 + 离线收益                      |
+| 经济     | `src/economy`  | 双积分账户（游戏币 / 营销积分）+ 单边流水账本，唯一记账入口 `EconomyService.apply`           |
+| 每日     | `src/daily`    | 签到（连签奖励）+ 每日任务领奖                                                               |
+| 赛跑     | `src/race`     | 赛道 + 服务端权威结算（三围 speed/stamina/endurance）+ 名次奖励                              |
+| 换装     | `src/items`    | 目录 / 拥有 / 穿戴，购买扣币                                                                 |
+| 家园     | `src/home`     | 家具布局 + 舒适度 `comfortFactor` 回流心情衰减                                               |
+| 图鉴     | `src/dex`      | 点亮 + 系列集齐奖励                                                                          |
+| 变现     | `src/boost`    | 激励广告核销 / 加速 / 体力恢复                                                               |
+| 兑换履约 | `src/exchange` | 虚拟 + 实物兑换、收货地址、兑换订单                                                          |
+| 运营后台 | `src/admin`    | RBAC + 审计 + 玩家管理 + 全局流水 + 人工发币 + 数据看板 + 配置中心 + `*_def` CRUD + 兑换管理 |
 
 ## 目录约定
 

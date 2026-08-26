@@ -21,46 +21,27 @@ import { REDIS_CLIENT } from '../redis/redis.module';
 import { EconomyService } from '../economy/economy.service';
 import { Pet } from '../entities/pet.entity';
 import { User } from '../entities/user.entity';
-import { HomeStat } from '../entities/home-stat.entity';
+import { HomeComfortService } from '../home/home-comfort.service';
+import {
+  clamp,
+  clampStat,
+  levelOf,
+  settle,
+  snapshot,
+  staminaMaxOf,
+  toView,
+  type PetStateView,
+  type PetTuning,
+} from './pet-math';
 import {
   comfortFactorOf,
-  STAT_MAX,
-  STAT_MIN,
   type DailyCapResource,
-  type PetActionConfig,
   type PetActionKey,
-  type PetAttrs,
   type PetComfort,
   type PetDailyCap,
   type PetGrowth,
   type PetOffline,
-  type PetRates,
-  type PetStage,
 } from './pet.config';
-
-/** 结算后的宠物快照（对外出参，camelCase）。 */
-export interface PetStateView {
-  id: string;
-  nickname: string | null;
-  species: string;
-  isActive: boolean;
-  hunger: number;
-  cleanliness: number;
-  mood: number;
-  stamina: number;
-  staminaMax: number;
-  intimacy: number;
-  level: number;
-  exp: number;
-  /** 当前等级内已累积 exp */
-  expIntoLevel: number;
-  /** 升下一级还需 exp（满级为 0） */
-  expToNext: number;
-  stage: string;
-  speed: number;
-  endurance: number;
-  lastSeenAt: string;
-}
 
 export interface ActionResult {
   pet: PetStateView;
@@ -99,23 +80,6 @@ export interface AdminAdjustInput {
   exp?: number;
 }
 
-/** 惰性结算后的可变状态（纯计算产物，未落库）。 */
-interface SettledStats {
-  hunger: number;
-  cleanliness: number;
-  mood: number;
-  stamina: number;
-  intimacy: number;
-  exp: number;
-}
-
-/**
- * 一次请求内用到的宠物域配置快照。
- *
- * 显式当参数往下传，而不是让各私有方法自己去读配置服务：
- *  - 保证同一次请求内衰减速率、成长曲线、上限口径完全一致（读一半配置被改掉会算出矛盾结果）；
- *  - 让 settle/levelOf 这些纯计算保持同步且可单测，不必为了取配置变成 async。
- */
 /** 离线收益预览（出参）。`comfortFactor` 让前端能解释「家园加成 +x%」。 */
 export interface OfflineView {
   elapsedSec: number;
@@ -128,18 +92,6 @@ export interface OfflineView {
   claimableCoin: number;
 }
 
-export interface PetTuning {
-  rates: PetRates;
-  growth: PetGrowth;
-  attrs: PetAttrs;
-  stages: PetStage[];
-  actions: Record<PetActionKey, PetActionConfig>;
-  dailyCap: PetDailyCap;
-  maxPets: number;
-  offline: PetOffline;
-  comfort: PetComfort;
-}
-
 @Injectable()
 export class PetService {
   constructor(
@@ -147,8 +99,7 @@ export class PetService {
     private readonly pets: Repository<Pet>,
     @InjectRepository(User)
     private readonly users: Repository<User>,
-    @InjectRepository(HomeStat)
-    private readonly homeStats: Repository<HomeStat>,
+    private readonly homeComfort: HomeComfortService,
     private readonly clock: ClockService,
     private readonly lock: LockService,
     private readonly economy: EconomyService,
@@ -173,16 +124,12 @@ export class PetService {
     };
   }
 
-  /** 读家园舒适度换算的心情衰减减免系数（无家园数据则 0）。 */
+  /** 读家园舒适度换算的心情衰减减免系数（没摆家具则 0）。 */
   private async comfortFactor(
     userId: string,
     cfg: PetComfort,
   ): Promise<number> {
-    const stat = await this.homeStats.findOne({
-      where: { userId },
-      select: { comfort: true },
-    });
-    return comfortFactorOf(stat?.comfort ?? 0, cfg);
+    return comfortFactorOf(await this.homeComfort.comfortOf(userId), cfg);
   }
 
   /**
@@ -207,7 +154,7 @@ export class PetService {
     const pet = await this.resolvePet(userId, t, petId);
     const cf = await this.comfortFactor(userId, t.comfort);
     return {
-      pet: this.toView(pet, this.settle(pet, this.clock.now(), cf, t), t),
+      pet: toView(pet, settle(pet, this.clock.now(), cf, t), t),
     };
   }
 
@@ -221,7 +168,7 @@ export class PetService {
     const now = this.clock.now();
     const cf = await this.comfortFactor(userId, t.comfort);
     return {
-      pets: rows.map((p) => this.toView(p, this.settle(p, now, cf, t), t)),
+      pets: rows.map((p) => toView(p, settle(p, now, cf, t), t)),
     };
   }
 
@@ -237,7 +184,7 @@ export class PetService {
     });
     const now = this.clock.now();
     const cf = await this.comfortFactor(userId, t.comfort);
-    return rows.map((p) => this.toView(p, this.settle(p, now, cf, t), t));
+    return rows.map((p) => toView(p, settle(p, now, cf, t), t));
   }
 
   // ---------------------------------------------------------------- 写
@@ -264,14 +211,14 @@ export class PetService {
           hunger: 80,
           mood: 80,
           cleanliness: 80,
-          stamina: this.staminaMaxOf(1, t.attrs),
+          stamina: staminaMaxOf(1, t.attrs),
           intimacy: 0,
           level: 1,
           exp: 0,
           lastSeenAt: this.clock.now(),
         }),
       );
-      return { pet: this.toView(created, this.snapshot(created), t) };
+      return { pet: toView(created, snapshot(created), t) };
     });
   }
 
@@ -292,11 +239,7 @@ export class PetService {
 
       const cf = await this.comfortFactor(userId, t.comfort);
       return {
-        pet: this.toView(
-          target,
-          this.settle(target, this.clock.now(), cf, t),
-          t,
-        ),
+        pet: toView(target, settle(target, this.clock.now(), cf, t), t),
       };
     });
   }
@@ -329,7 +272,7 @@ export class PetService {
       }
 
       const now = this.clock.now();
-      const cur = this.settle(
+      const cur = settle(
         pet,
         now,
         await this.comfortFactor(userId, t.comfort),
@@ -375,16 +318,16 @@ export class PetService {
         grantedCoin < cfg.gain.coin;
 
       const exp = cur.exp + grantedExp;
-      const levelBefore = this.levelOf(cur.exp, t.growth).level;
-      const progress = this.levelOf(exp, t.growth);
-      const staminaMax = this.staminaMaxOf(progress.level, t.attrs);
+      const levelBefore = levelOf(cur.exp, t.growth).level;
+      const progress = levelOf(exp, t.growth);
+      const staminaMax = staminaMaxOf(progress.level, t.attrs);
 
-      pet.hunger = this.clampStat(cur.hunger + (cfg.effects.hunger ?? 0));
-      pet.cleanliness = this.clampStat(
+      pet.hunger = clampStat(cur.hunger + (cfg.effects.hunger ?? 0));
+      pet.cleanliness = clampStat(
         cur.cleanliness + (cfg.effects.cleanliness ?? 0),
       );
-      pet.mood = this.clampStat(cur.mood + (cfg.effects.mood ?? 0));
-      pet.stamina = this.clamp(cur.stamina + staminaDelta, 0, staminaMax);
+      pet.mood = clampStat(cur.mood + (cfg.effects.mood ?? 0));
+      pet.stamina = clamp(cur.stamina + staminaDelta, 0, staminaMax);
       pet.intimacy = cur.intimacy + grantedIntimacy;
       pet.exp = exp;
       pet.level = progress.level;
@@ -419,7 +362,7 @@ export class PetService {
       }
 
       return {
-        pet: this.toView(saved, this.snapshot(saved), t),
+        pet: toView(saved, snapshot(saved), t),
         gained: {
           intimacy: grantedIntimacy,
           exp: grantedExp,
@@ -456,7 +399,7 @@ export class PetService {
       if (!pet) throw new NotFoundException('该玩家无可调整的宠物');
 
       const now = this.clock.now();
-      const cur = this.settle(
+      const cur = settle(
         pet,
         now,
         await this.comfortFactor(userId, t.comfort),
@@ -466,19 +409,13 @@ export class PetService {
         v === undefined ? base : input.mode === 'set' ? v : base + v;
 
       const exp = Math.max(0, Math.round(apply(cur.exp, input.exp)));
-      const level = this.levelOf(exp, t.growth).level;
-      const staminaMax = this.staminaMaxOf(level, t.attrs);
+      const level = levelOf(exp, t.growth).level;
+      const staminaMax = staminaMaxOf(level, t.attrs);
 
-      pet.hunger = this.clampStat(apply(cur.hunger, input.hunger));
-      pet.mood = this.clampStat(apply(cur.mood, input.mood));
-      pet.cleanliness = this.clampStat(
-        apply(cur.cleanliness, input.cleanliness),
-      );
-      pet.stamina = this.clamp(
-        apply(cur.stamina, input.stamina),
-        0,
-        staminaMax,
-      );
+      pet.hunger = clampStat(apply(cur.hunger, input.hunger));
+      pet.mood = clampStat(apply(cur.mood, input.mood));
+      pet.cleanliness = clampStat(apply(cur.cleanliness, input.cleanliness));
+      pet.stamina = clamp(apply(cur.stamina, input.stamina), 0, staminaMax);
       pet.intimacy = Math.max(
         0,
         Math.round(apply(cur.intimacy, input.intimacy)),
@@ -488,7 +425,7 @@ export class PetService {
       pet.lastSeenAt = now;
 
       const saved = await this.pets.save(pet);
-      return { pet: this.toView(saved, this.snapshot(saved), t) };
+      return { pet: toView(saved, snapshot(saved), t) };
     });
   }
 
@@ -504,14 +441,14 @@ export class PetService {
       await this.assertNotBanned(userId);
       const pet = await this.resolveExistingPet(userId, petId);
       const now = this.clock.now();
-      const cur = this.settle(
+      const cur = settle(
         pet,
         now,
         await this.comfortFactor(userId, t.comfort),
         t,
       );
-      const level = this.levelOf(cur.exp, t.growth).level;
-      const staminaMax = this.staminaMaxOf(level, t.attrs);
+      const level = levelOf(cur.exp, t.growth).level;
+      const staminaMax = staminaMaxOf(level, t.attrs);
 
       pet.hunger = cur.hunger;
       pet.cleanliness = cur.cleanliness;
@@ -522,7 +459,7 @@ export class PetService {
       pet.level = level;
       pet.lastSeenAt = now;
       const saved = await this.pets.save(pet);
-      return { pet: this.toView(saved, this.snapshot(saved), t) };
+      return { pet: toView(saved, snapshot(saved), t) };
     });
   }
 
@@ -552,7 +489,7 @@ export class PetService {
     const t = await this.tuning();
     const pet = await this.resolveExistingPet(userId, petId);
     const now = this.clock.now();
-    const cur = this.settle(
+    const cur = settle(
       pet,
       now,
       await this.comfortFactor(userId, t.comfort),
@@ -560,20 +497,14 @@ export class PetService {
     );
 
     const exp = cur.exp + (effect.exp ?? 0);
-    const levelBefore = this.levelOf(cur.exp, t.growth).level;
-    const progress = this.levelOf(exp, t.growth);
-    const staminaMax = this.staminaMaxOf(progress.level, t.attrs);
+    const levelBefore = levelOf(cur.exp, t.growth).level;
+    const progress = levelOf(exp, t.growth);
+    const staminaMax = staminaMaxOf(progress.level, t.attrs);
 
-    pet.hunger = this.clampStat(cur.hunger + (effect.hunger ?? 0));
-    pet.cleanliness = this.clampStat(
-      cur.cleanliness + (effect.cleanliness ?? 0),
-    );
-    pet.mood = this.clampStat(cur.mood + (effect.mood ?? 0));
-    pet.stamina = this.clamp(
-      cur.stamina + (effect.stamina ?? 0),
-      0,
-      staminaMax,
-    );
+    pet.hunger = clampStat(cur.hunger + (effect.hunger ?? 0));
+    pet.cleanliness = clampStat(cur.cleanliness + (effect.cleanliness ?? 0));
+    pet.mood = clampStat(cur.mood + (effect.mood ?? 0));
+    pet.stamina = clamp(cur.stamina + (effect.stamina ?? 0), 0, staminaMax);
     pet.intimacy = cur.intimacy;
     pet.exp = exp;
     pet.level = progress.level;
@@ -581,7 +512,7 @@ export class PetService {
 
     const saved = await this.pets.save(pet);
     return {
-      pet: this.toView(saved, this.snapshot(saved), t),
+      pet: toView(saved, snapshot(saved), t),
       levelUp: progress.level > levelBefore,
     };
   }
@@ -607,7 +538,7 @@ export class PetService {
     const t = await this.tuning();
     const pet = await this.resolveExistingPet(userId, petId);
     const cf = await this.comfortFactor(userId, t.comfort);
-    const view = this.toView(pet, this.settle(pet, this.clock.now(), cf, t), t);
+    const view = toView(pet, settle(pet, this.clock.now(), cf, t), t);
     return {
       petId: view.id,
       nickname: view.nickname,
@@ -634,7 +565,7 @@ export class PetService {
       await this.assertNotBanned(userId);
       const pet = await this.resolveExistingPet(userId, petId);
       const now = this.clock.now();
-      const cur = this.settle(
+      const cur = settle(
         pet,
         now,
         await this.comfortFactor(userId, t.comfort),
@@ -644,19 +575,19 @@ export class PetService {
         throw new BadRequestException('体力不足，无法参赛');
       }
 
-      const level = this.levelOf(cur.exp, t.growth).level;
-      const staminaMax = this.staminaMaxOf(level, t.attrs);
+      const level = levelOf(cur.exp, t.growth).level;
+      const staminaMax = staminaMaxOf(level, t.attrs);
       pet.hunger = cur.hunger;
       pet.cleanliness = cur.cleanliness;
       pet.mood = cur.mood;
-      pet.stamina = this.clamp(cur.stamina - cost, 0, staminaMax);
+      pet.stamina = clamp(cur.stamina - cost, 0, staminaMax);
       pet.intimacy = cur.intimacy;
       pet.exp = cur.exp;
       pet.level = level;
       pet.lastSeenAt = now;
       const saved = await this.pets.save(pet);
 
-      const view = this.toView(saved, this.snapshot(saved), t);
+      const view = toView(saved, snapshot(saved), t);
       return {
         petId: view.id,
         nickname: view.nickname,
@@ -759,7 +690,7 @@ export class PetService {
     const pet =
       (await this.pets.findOne({ where: { userId, isActive: true } })) ??
       (await this.pets.findOne({ where: { userId }, order: { id: 'ASC' } }));
-    return pet ? this.levelOf(pet.exp, growth).level : 1;
+    return pet ? levelOf(pet.exp, growth).level : 1;
   }
 
   private computeOffline(
@@ -825,80 +756,13 @@ export class PetService {
         hunger: 80,
         mood: 80,
         cleanliness: 80,
-        stamina: this.staminaMaxOf(1, t.attrs),
+        stamina: staminaMaxOf(1, t.attrs),
         intimacy: 0,
         level: 1,
         exp: 0,
         lastSeenAt: this.clock.now(),
       }),
     );
-  }
-
-  /**
-   * 惰性结算：把库里的值按 elapsed 推进到「当前」。纯函数、不落库。
-   *
-   * 心情为派生量：基础按 moodBase/h 掉；饱食度或清洁度触底后的那段时间再额外
-   * 按 moodStarving/h 掉；整体再乘 (1 − comfortFactor)。
-   */
-  private settle(
-    pet: Pet,
-    now: Date,
-    comfortFactor: number,
-    t: PetTuning,
-  ): SettledStats {
-    const { rates } = t;
-    const elapsedH = Math.max(
-      0,
-      (now.getTime() - new Date(pet.lastSeenAt).getTime()) / 3_600_000,
-    );
-
-    const hunger = this.clampStat(pet.hunger - rates.hunger * elapsedH);
-    const cleanliness = this.clampStat(
-      pet.cleanliness - rates.cleanliness * elapsedH,
-    );
-
-    // 各自触底所需小时数 → 取更早触底者，之后的时长按「饿/脏」加速掉心情。
-    // 速率为 0 时永不触底，用 Infinity 表达，避免除零得出 NaN。
-    const hungerZeroH =
-      rates.hunger > 0 ? pet.hunger / rates.hunger : Number.POSITIVE_INFINITY;
-    const cleanZeroH =
-      rates.cleanliness > 0
-        ? pet.cleanliness / rates.cleanliness
-        : Number.POSITIVE_INFINITY;
-    const starvingH = Math.max(0, elapsedH - Math.min(hungerZeroH, cleanZeroH));
-    const moodDecay =
-      (rates.moodBase * elapsedH + rates.moodStarving * starvingH) *
-      (1 - comfortFactor);
-
-    const staminaMax = this.staminaMaxOf(
-      this.levelOf(pet.exp, t.growth).level,
-      t.attrs,
-    );
-
-    return {
-      hunger,
-      cleanliness,
-      mood: this.clampStat(pet.mood - moodDecay),
-      stamina: this.clamp(
-        pet.stamina + rates.stamina * elapsedH,
-        0,
-        staminaMax,
-      ),
-      intimacy: pet.intimacy,
-      exp: pet.exp,
-    };
-  }
-
-  /** 刚落库后的快照（无需再衰减）。 */
-  private snapshot(pet: Pet): SettledStats {
-    return {
-      hunger: pet.hunger,
-      cleanliness: pet.cleanliness,
-      mood: pet.mood,
-      stamina: pet.stamina,
-      intimacy: pet.intimacy,
-      exp: pet.exp,
-    };
   }
 
   /**
@@ -924,82 +788,5 @@ export class PetService {
       await this.redis.expire(key, ttlSec);
     }
     return grant;
-  }
-
-  /** 由累计 exp 推出等级与本级进度。 */
-  private levelOf(
-    totalExp: number,
-    growth: PetGrowth,
-  ): {
-    level: number;
-    expIntoLevel: number;
-    expToNext: number;
-  } {
-    let level = 1;
-    let need: number = growth.baseExp;
-    let remaining = Math.max(0, totalExp);
-
-    while (level < growth.maxLevel && remaining >= need) {
-      remaining -= need;
-      level += 1;
-      need = Math.round(need * growth.ratio);
-    }
-
-    return {
-      level,
-      expIntoLevel: remaining,
-      expToNext: level >= growth.maxLevel ? 0 : need - remaining,
-    };
-  }
-
-  private staminaMaxOf(level: number, attrs: PetAttrs): number {
-    return attrs.staminaMaxBase + attrs.staminaMaxPerLevel * (level - 1);
-  }
-
-  private stageOf(level: number, stages: PetStage[]): string {
-    return (
-      stages.find((s) => level <= s.maxLevel)?.key ??
-      stages[stages.length - 1].key
-    );
-  }
-
-  private toView(pet: Pet, s: SettledStats, t: PetTuning): PetStateView {
-    const { attrs } = t;
-    const progress = this.levelOf(s.exp, t.growth);
-    const level = progress.level;
-    return {
-      id: pet.id,
-      nickname: pet.nickname,
-      species: pet.species,
-      isActive: pet.isActive,
-      hunger: s.hunger,
-      cleanliness: s.cleanliness,
-      mood: s.mood,
-      stamina: s.stamina,
-      staminaMax: this.staminaMaxOf(level, attrs),
-      intimacy: s.intimacy,
-      level,
-      exp: s.exp,
-      expIntoLevel: progress.expIntoLevel,
-      expToNext: progress.expToNext,
-      stage: this.stageOf(level, t.stages),
-      speed: this.round1(attrs.speedBase + attrs.speedPerLevel * (level - 1)),
-      endurance: this.round1(
-        attrs.enduranceBase + attrs.endurancePerLevel * (level - 1),
-      ),
-      lastSeenAt: new Date(pet.lastSeenAt).toISOString(),
-    };
-  }
-
-  private clampStat(v: number): number {
-    return this.clamp(v, STAT_MIN, STAT_MAX);
-  }
-
-  private clamp(v: number, min: number, max: number): number {
-    return Math.max(min, Math.min(max, Math.round(v)));
-  }
-
-  private round1(v: number): number {
-    return Math.round(v * 10) / 10;
   }
 }

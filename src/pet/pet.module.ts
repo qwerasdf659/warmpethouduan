@@ -4,15 +4,16 @@ import { AuthModule } from '../auth/auth.module';
 import { EconomyModule } from '../economy/economy.module';
 import { Pet } from '../entities/pet.entity';
 import { User } from '../entities/user.entity';
-import { HomeStat } from '../entities/home-stat.entity';
+import { HomeComfortModule } from '../home/home-comfort.module';
 import { PetController } from './pet.controller';
 import { PetService } from './pet.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Pet, User, HomeStat]),
+    TypeOrmModule.forFeature([Pet, User]),
     AuthModule,
     EconomyModule,
+    HomeComfortModule,
   ],
   controllers: [PetController],
   providers: [PetService],

@@ -1,10 +1,11 @@
-import { LogoutOutlined } from '@ant-design/icons';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
 import { history } from '@umijs/max';
-import { Dropdown, message } from 'antd';
+import { Button, message, Result } from 'antd';
+import AvatarDropdown from '@/components/AvatarDropdown';
 import { TOKEN_KEY } from '@/constants';
 import { getProfile } from '@/services/auth';
 import type { AdminProfile } from '@/types';
+import { buildMenuData, isPathAllowed } from '@/utils/menu';
 
 interface InitialState {
   profile?: AdminProfile;
@@ -31,9 +32,16 @@ export async function getInitialState(): Promise<InitialState> {
   return { fetchProfile };
 }
 
-/** ProLayout 运行时配置：标题、用户头像下拉退出、未登录跳转。 */
+/**
+ * ProLayout 运行时配置：标题、菜单、用户头像下拉退出、未登录跳转。
+ *
+ * 侧边栏来自 `profile.menus`（后端按权限过滤好的 admin_menu 行），不是 .umirc.ts。
+ * 路由表只负责「路径 → 组件」这个构建期映射；菜单叫什么、排第几、归在哪个目录下、
+ * 谁看得见，全部以数据库为准 —— 否则运营在菜单页改了名字，界面纹丝不动。
+ */
 export const layout: RunTimeLayoutConfig = ({ initialState }) => {
   const profile = initialState?.profile;
+  const menus = profile?.menus ?? [];
   const logout = () => {
     localStorage.removeItem(TOKEN_KEY);
     message.success('已退出登录');
@@ -44,24 +52,32 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
     title: 'WarmPet 运营后台',
     logo: false,
     menu: { locale: false },
+    menuDataRender: () => buildMenuData(menus),
+    // 侧边栏藏起来不等于进不去：直接敲 URL 仍会渲染页面（虽然接口会 403）。
+    // 这里按同一份菜单数据兜一道，避免「看得到半个页面」的困惑。
+    childrenRender: (children: React.ReactNode) => {
+      const path = history.location.pathname;
+      if (!profile || isPathAllowed(menus, path)) return children;
+      return (
+        <Result
+          status="403"
+          title="403"
+          subTitle="没有访问该页面的权限，如需开通请联系管理员。"
+          extra={
+            <Button type="primary" onClick={() => history.push('/dashboard')}>
+              回到数据看板
+            </Button>
+          }
+        />
+      );
+    },
     avatarProps: {
       title: profile?.displayName || profile?.username || '未登录',
       size: 'small',
       render: (_props: unknown, dom: React.ReactNode) => (
-        <Dropdown
-          menu={{
-            items: [
-              {
-                key: 'logout',
-                icon: <LogoutOutlined />,
-                label: '退出登录',
-                onClick: logout,
-              },
-            ],
-          }}
-        >
+        <AvatarDropdown profile={profile} onLogout={logout}>
           {dom}
-        </Dropdown>
+        </AvatarDropdown>
       ),
     },
     onPageChange: () => {

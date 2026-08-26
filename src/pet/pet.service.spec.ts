@@ -5,10 +5,10 @@ import {
   PET_CONFIG,
   type DailyCapResource,
   type PetDailyCap,
-  type PetGrowth,
   type PetOffline,
 } from './pet.config';
-import { PetService, type OfflineView, type PetTuning } from './pet.service';
+import { levelOf, settle, type PetTuning } from './pet-math';
+import { PetService, type OfflineView } from './pet.service';
 
 /**
  * 聚焦 PetService 的**纯结算逻辑**（惰性衰减、离线收益、每日上限）：
@@ -17,19 +17,6 @@ import { PetService, type OfflineView, type PetTuning } from './pet.service';
 
 /** 待测的私有计算方法。显式声明形状而不用 `as any`，改签名时编译器能立刻抓到。 */
 interface PetInternals {
-  settle(
-    pet: Pet,
-    now: Date,
-    comfortFactor: number,
-    t: PetTuning,
-  ): {
-    hunger: number;
-    cleanliness: number;
-    mood: number;
-    stamina: number;
-    intimacy: number;
-    exp: number;
-  };
   computeOffline(
     user: User,
     now: Date,
@@ -45,10 +32,6 @@ interface PetInternals {
     ttlSec: number,
     cap: PetDailyCap,
   ): Promise<number>;
-  levelOf(
-    totalExp: number,
-    growth: PetGrowth,
-  ): { level: number; expIntoLevel: number; expToNext: number };
 }
 
 /** 断言基准取代码内置默认值，与线上未改配置时的行为一致。 */
@@ -81,7 +64,7 @@ describe('PetService 结算', () => {
     const svc = new PetService(
       null as never, // pets
       null as never, // users
-      null as never, // homeStats
+      null as never, // homeComfort
       { now: () => new Date(), nowMs: () => Date.now() }, // clock
       null as never, // lock
       null as never, // economy
@@ -94,7 +77,6 @@ describe('PetService 结算', () => {
 
   describe('settle 惰性衰减', () => {
     it('按 elapsed 推进各状态（1 小时）', () => {
-      const svc = makeService();
       const now = new Date('2026-01-01T01:00:00Z');
       const pet = {
         hunger: 80,
@@ -106,7 +88,7 @@ describe('PetService 结算', () => {
         lastSeenAt: new Date(now.getTime() - HOUR),
       } as unknown as Pet;
 
-      const s = svc.settle(pet, now, 0, T);
+      const s = settle(pet, now, 0, T);
 
       expect(s.hunger).toBe(75); // -5/h
       expect(s.cleanliness).toBe(77); // -3/h
@@ -116,7 +98,6 @@ describe('PetService 结算', () => {
     });
 
     it('触底后心情加速衰减', () => {
-      const svc = makeService();
       const now = new Date('2026-01-01T20:00:00Z');
       const pet = {
         hunger: 10, // 2h 后饿到 0
@@ -128,13 +109,12 @@ describe('PetService 结算', () => {
         lastSeenAt: new Date(now.getTime() - 10 * HOUR),
       } as unknown as Pet;
 
-      const s = svc.settle(pet, now, 0, T);
+      const s = settle(pet, now, 0, T);
       // hungerZeroH=2，starvingH=8 → moodDecay=2*10 + 3*8 = 44 → mood=56
       expect(s.mood).toBe(56);
     });
 
     it('comfortFactor 减免心情衰减', () => {
-      const svc = makeService();
       const now = new Date('2026-01-01T01:00:00Z');
       const pet = {
         hunger: 80,
@@ -146,13 +126,12 @@ describe('PetService 结算', () => {
         lastSeenAt: new Date(now.getTime() - HOUR),
       } as unknown as Pet;
 
-      const s = svc.settle(pet, now, 0.5, T);
+      const s = settle(pet, now, 0.5, T);
       // moodDecay = 2 * (1-0.5) = 1 → mood=79
       expect(s.mood).toBe(79);
     });
 
     it('elapsed 为负（时钟回拨）不倒增', () => {
-      const svc = makeService();
       const now = new Date('2026-01-01T00:00:00Z');
       const pet = {
         hunger: 80,
@@ -164,13 +143,12 @@ describe('PetService 结算', () => {
         lastSeenAt: new Date(now.getTime() + HOUR),
       } as unknown as Pet;
 
-      const s = svc.settle(pet, now, 0, T);
+      const s = settle(pet, now, 0, T);
       expect(s.hunger).toBe(80);
       expect(s.mood).toBe(80);
     });
 
     it('衰减速率配成 0 时不触底、不产生 NaN', () => {
-      const svc = makeService();
       const now = new Date('2026-01-01T10:00:00Z');
       const pet = {
         hunger: 0,
@@ -186,15 +164,18 @@ describe('PetService 结算', () => {
         ...T,
         rates: { ...T.rates, hunger: 0, cleanliness: 0 },
       };
-      const s = svc.settle(pet, now, 0, zeroRates);
+      const s = settle(pet, now, 0, zeroRates);
       // 永不触底 → 只有基础衰减 2/h * 10h = 20 → mood=60
       expect(s.mood).toBe(60);
     });
   });
 
   describe('computeOffline 离线收益', () => {
+    // computeOffline 仍是服务的私有方法（要读 user.offlineBaseAt），不像 settle/levelOf
+    // 那样已经抽成纯函数，所以这里还得起一个最小桩服务。
+    const svc = makeService();
+
     it('按时长线性发放（level=1 无加成）', () => {
-      const svc = makeService();
       const now = new Date('2026-01-01T02:00:00Z');
       const user = {
         offlineBaseAt: new Date(now.getTime() - 2 * HOUR),
@@ -206,7 +187,6 @@ describe('PetService 结算', () => {
     });
 
     it('超过封顶按 maxHours 截断（防挂机）', () => {
-      const svc = makeService();
       const now = new Date('2026-01-02T00:00:00Z');
       const user = {
         offlineBaseAt: new Date(now.getTime() - 100 * HOUR),
@@ -218,7 +198,6 @@ describe('PetService 结算', () => {
     });
 
     it('出战宠等级提升时薪', () => {
-      const svc = makeService();
       const now = new Date('2026-01-01T02:00:00Z');
       const user = {
         offlineBaseAt: new Date(now.getTime() - 2 * HOUR),
@@ -231,7 +210,6 @@ describe('PetService 结算', () => {
     });
 
     it('家园舒适度提升时薪（与心情衰减减免同一系数）', () => {
-      const svc = makeService();
       const now = new Date('2026-01-01T02:00:00Z');
       const user = {
         offlineBaseAt: new Date(now.getTime() - 2 * HOUR),
@@ -249,7 +227,6 @@ describe('PetService 结算', () => {
     });
 
     it('封顶后家园加成仍生效（加成作用于时薪，不是绕过 CAP）', () => {
-      const svc = makeService();
       const now = new Date('2026-01-02T00:00:00Z');
       const user = {
         offlineBaseAt: new Date(now.getTime() - 100 * HOUR),
@@ -370,22 +347,19 @@ describe('PetService 结算', () => {
 
   describe('levelOf 成长曲线', () => {
     it('exp=0 → Lv1', () => {
-      const svc = makeService();
-      expect(svc.levelOf(0, T.growth).level).toBe(1);
+      expect(levelOf(0, T.growth).level).toBe(1);
     });
 
     it('exp=100 → Lv2 起步', () => {
-      const svc = makeService();
-      const r = svc.levelOf(100, T.growth);
+      const r = levelOf(100, T.growth);
       expect(r.level).toBe(2);
       expect(r.expIntoLevel).toBe(0);
     });
 
     it('曲线参数可配：baseExp 改小则同样 exp 升到更高级', () => {
-      const svc = makeService();
       const cheap = { ...T.growth, baseExp: 10 };
-      expect(svc.levelOf(100, cheap).level).toBeGreaterThan(
-        svc.levelOf(100, T.growth).level,
+      expect(levelOf(100, cheap).level).toBeGreaterThan(
+        levelOf(100, T.growth).level,
       );
     });
   });
@@ -424,7 +398,8 @@ describe('PetService.applyConsumable', () => {
     const svc = new PetService(
       pets as never,
       null as never, // users
-      { findOne: jest.fn().mockResolvedValue(null) } as never, // homeStats
+      // 没摆家具 → 舒适度 0，加成不参与本组断言
+      { comfortOf: jest.fn().mockResolvedValue(0) } as never, // homeComfort
       { now: () => NOW, nowMs: () => NOW.getTime() },
       null as never, // lock：applyConsumable 刻意不抢锁，调用方已持有
       null as never, // economy

@@ -4,11 +4,8 @@ import { Repository } from 'typeorm';
 import { ClockService } from '../../common/clock/clock.service';
 import { LockService } from '../../common/lock/lock.service';
 import { User } from '../../entities/user.entity';
-import {
-  type AdminAdjustInput,
-  PetService,
-  type PetStateView,
-} from '../../pet/pet.service';
+import type { PetStateView } from '../../pet/pet-math';
+import { type AdminAdjustInput, PetService } from '../../pet/pet.service';
 import { ItemsService } from '../../items/items.service';
 import { AdjustPetDto, GrantItemDto } from './dto/player-write.dto';
 import { QueryPlayersDto } from './dto/query-players.dto';

@@ -106,7 +106,10 @@ async function main() {
 
     const catalog = await items.grantable();
     const hasBg = catalog.list.some((i) => i.slot === 'bg');
-    check('补发目录含 bg 槽物品，且不带价格字段', hasBg && !('price' in catalog.list[0]));
+    check(
+      '补发目录含 bg 槽物品，且不带价格字段',
+      hasBg && !('price' in catalog.list[0]),
+    );
 
     // -------------------------------------------------- C/D. 履约时间落列
     const orderId = (

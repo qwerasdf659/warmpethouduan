@@ -57,7 +57,6 @@ export interface Role {
   description: string | null;
   isSystem: boolean;
   permissions: Permission[];
-  menus: MenuNode[];
   createdAt: string;
   updatedAt: string;
 }
@@ -186,7 +185,12 @@ export interface LedgerEntry {
 }
 
 export interface StatsOverview {
-  players: { total: number; banned: number; newToday: number; dauToday: number };
+  players: {
+    total: number;
+    banned: number;
+    newToday: number;
+    dauToday: number;
+  };
   pets: { total: number };
   wallet: { gameCoinTotal: number; marketingPointTotal: number };
   exchange: { pendingOrders: number };

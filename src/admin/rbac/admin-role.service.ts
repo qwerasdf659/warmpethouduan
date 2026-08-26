@@ -8,9 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { AdminRole } from '../../entities/admin-role.entity';
 import { AdminPermission } from '../../entities/admin-permission.entity';
-import { AdminMenu } from '../../entities/admin-menu.entity';
 import {
-  AssignRoleMenusDto,
   AssignRolePermissionsDto,
   CreateRoleDto,
   UpdateRoleDto,
@@ -23,13 +21,11 @@ export class AdminRoleService {
     private readonly roles: Repository<AdminRole>,
     @InjectRepository(AdminPermission)
     private readonly permissions: Repository<AdminPermission>,
-    @InjectRepository(AdminMenu)
-    private readonly menus: Repository<AdminMenu>,
   ) {}
 
   findAll(): Promise<AdminRole[]> {
     return this.roles.find({
-      relations: { permissions: true, menus: true },
+      relations: { permissions: true },
       order: { id: 'ASC' },
     });
   }
@@ -37,7 +33,7 @@ export class AdminRoleService {
   async findOne(id: string): Promise<AdminRole> {
     const role = await this.roles.findOne({
       where: { id },
-      relations: { permissions: true, menus: true },
+      relations: { permissions: true },
     });
     if (!role) throw new NotFoundException('角色不存在');
     return role;
@@ -52,7 +48,6 @@ export class AdminRoleService {
       description: dto.description ?? null,
       isSystem: false,
       permissions: [],
-      menus: [],
     });
     return this.roles.save(role);
   }
@@ -83,15 +78,6 @@ export class AdminRoleService {
         : await this.permissions.find({
             where: { id: In(dto.permissionIds) },
           });
-    return this.roles.save(role);
-  }
-
-  async setMenus(id: string, dto: AssignRoleMenusDto): Promise<AdminRole> {
-    const role = await this.findOne(id);
-    role.menus =
-      dto.menuIds.length === 0
-        ? []
-        : await this.menus.find({ where: { id: In(dto.menuIds) } });
     return this.roles.save(role);
   }
 }

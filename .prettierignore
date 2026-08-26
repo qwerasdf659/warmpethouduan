@@ -1,0 +1,13 @@
+# 唯一的风格来源是同目录的 .prettierrc —— admin-web 不放自己的 .prettierrc，
+# prettier 会向上找到这一份，所以前后端风格不可能漂移。
+#
+# 但 ignore 清单必须各管各的：prettier 只读运行目录下的 .prettierignore。
+# 所以这里整体跳过 admin-web，由 `pnpm --dir admin-web format` 处理它自己那部分。
+admin-web/
+
+dist/
+node_modules/
+coverage/
+
+pnpm-lock.yaml
+package-lock.json

@@ -1,4 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import Redis from 'ioredis';
 import { Repository } from 'typeorm';
 import { AdTokenService } from '../boost/ad-token.service';
@@ -39,6 +43,7 @@ interface RacesStub {
 }
 interface PetStub {
   getBattleStats: jest.Mock;
+  raceSpendStamina: jest.Mock;
 }
 interface EconomyStub {
   apply: jest.Mock;
@@ -69,6 +74,7 @@ describe('RaceService 看广告增值', () => {
     return {
       id: 'r1',
       userId: 'u1',
+      bizId: 'biz-r1',
       petId: 'p1',
       trackKey: 'meadow',
       petLevel: 3,
@@ -118,19 +124,19 @@ describe('RaceService 看广告增值', () => {
       create: jest.fn(),
       createQueryBuilder: jest.fn(() => emptySampleQb()),
     };
+    const battle = {
+      petId: 'p1',
+      nickname: null,
+      level: 3,
+      speed: 12,
+      endurance: 11.6,
+      stamina: 60,
+      staminaMax: 104,
+      mood: 80,
+    };
     pet = {
-      getBattleStats: jest.fn(() =>
-        Promise.resolve({
-          petId: 'p1',
-          nickname: null,
-          level: 3,
-          speed: 12,
-          endurance: 11.6,
-          stamina: 60,
-          staminaMax: 104,
-          mood: 80,
-        }),
-      ),
+      getBattleStats: jest.fn(() => Promise.resolve(battle)),
+      raceSpendStamina: jest.fn(() => Promise.resolve(battle)),
     };
     economy = {
       apply: jest.fn(() =>
@@ -162,6 +168,35 @@ describe('RaceService 看广告增值', () => {
       configStub,
       redis as unknown as Redis,
     );
+  });
+
+  describe('start 报名幂等', () => {
+    it('同一 bizId 已开过一场：拒绝，且不扣体力、不扣门票、不落库', async () => {
+      races.findOne.mockResolvedValue({ id: 'r9' });
+
+      await expect(svc.start('u1', 'meadow', 'biz-dup')).rejects.toThrow(
+        ConflictException,
+      );
+
+      // 拦截必须发生在花掉资源之前，否则「拒绝了但体力已扣」比重复开赛还糟
+      expect(pet.raceSpendStamina).not.toHaveBeenCalled();
+      expect(economy.apply).not.toHaveBeenCalled();
+      expect(races.save).not.toHaveBeenCalled();
+    });
+
+    it('新 bizId：落库时带上该键，让去重落到唯一索引而不只是 Redis', async () => {
+      races.findOne.mockResolvedValue(null);
+      races.create.mockImplementation((v: unknown) => v);
+      races.save.mockImplementation((v: { id?: string }) =>
+        Promise.resolve({ ...v, id: 'r1' }),
+      );
+
+      await svc.start('u1', 'meadow', 'biz-new');
+
+      expect(races.create).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'u1', bizId: 'biz-new' }),
+      );
+    });
   });
 
   describe('doubleReward 奖励翻倍', () => {

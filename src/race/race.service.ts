@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   Logger,
@@ -176,6 +177,18 @@ export class RaceService {
     const track = getTrack(cfg['race.tracks'], trackKey);
     if (!track) throw new BadRequestException('未知赛道');
 
+    // 该 bizId 已开过一场：在花掉体力和门票之前就拦住。
+    // 正常重试落不到这里（Redis 拦截器 24h 内直接回放上次结果），能走到这儿的
+    // 只有超出该窗口的旧键重放 —— 那种情况拒绝才是对的：影子成绩没有落库，
+    // 无法忠实回放，静默新建一场就成了免费赛。
+    const replayed = await this.races.findOne({
+      where: { userId, bizId },
+      select: { id: true },
+    });
+    if (replayed) {
+      throw new ConflictException('该报名请求已提交过，请勿重复报名');
+    }
+
     // 先校验门票余额（避免扣了体力却付不起门票）
     if (track.entryCoin > 0) {
       const wallet = await this.economy.getWallet(userId);
@@ -210,6 +223,7 @@ export class RaceService {
     const saved = await this.races.save(
       this.races.create({
         userId,
+        bizId,
         petId: battle.petId,
         trackKey: track.key,
         petLevel: battle.level,

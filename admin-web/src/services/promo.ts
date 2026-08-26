@@ -5,17 +5,12 @@ import type {
   PromoCodeView,
   PromoRedemptionView,
 } from '@/types';
+import { newBizId } from '@/utils/bizId';
 
 /**
  * 兑换码。这是**营销积分唯一的玩家侧入账路径**——线下物料印码、异业合作发券
  * 都从这里出。写操作走 `promo:write` 权限（印码等于凭空造积分，与钱包发放分开授权）。
  */
-
-function newBizId(): string {
-  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
 
 export async function listBatches(): Promise<{ list: PromoBatchSummary[] }> {
   return request('/admin/promo/batches', { method: 'GET' });

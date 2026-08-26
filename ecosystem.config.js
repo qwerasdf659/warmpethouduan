@@ -49,7 +49,7 @@ module.exports = {
       error_file: './logs/warmpet-api-error.log',
       merge_logs: true,
       log_date_format: 'YYYY-MM-DD HH:mm:ss [+08:00]',
-      time: true
+      time: true,
     },
     {
       /*
@@ -73,7 +73,7 @@ module.exports = {
       out_file: './logs/redis-out.log',
       error_file: './logs/redis-error.log',
       merge_logs: true,
-      time: true
-    }
-  ]
-}
+      time: true,
+    },
+  ],
+};

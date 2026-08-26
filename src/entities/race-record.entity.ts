@@ -18,12 +18,27 @@ import { User } from './user.entity';
 @Index('idx_race_user_id_id', ['userId', 'id'])
 // 影子采样按「赛道 + 等级带 + 时间」捞成绩，没这条索引会全表扫
 @Index('idx_race_ghost_sample', ['trackKey', 'petLevel', 'createdAt'])
+@Index('uq_race_record_user_biz', ['userId', 'bizId'], { unique: true })
 export class RaceRecord {
   @PrimaryGeneratedColumn('increment', { type: 'bigint' })
   id: string;
 
   @Column({ name: 'user_id', type: 'bigint' })
   userId: string;
+
+  /**
+   * 报名时的业务幂等键，`(user_id, biz_id)` 唯一。
+   *
+   * 和 gacha_draw 同理：只靠 `IdempotencyInterceptor`（Redis，24h TTL）不够。
+   * 门票扣费走经济域的**永久**幂等（ledger 唯一索引无 TTL），两边 TTL 一旦不对称，
+   * 拿一个超过 24h 的旧 bizId 重放 start 就会「门票被幂等吃掉、却新建一场可结算的
+   * 比赛」——等于免费赛。这一列把去重也做成永久的，补上那道缺口。
+   *
+   * 可空：本列加入前的历史记录没有该键；Postgres 唯一索引视 NULL 互不相等，
+   * 老行不会互相冲突。
+   */
+  @Column({ name: 'biz_id', type: 'varchar', length: 128, nullable: true })
+  bizId: string | null;
 
   @ManyToOne(() => User)
   @JoinColumn({ name: 'user_id' })

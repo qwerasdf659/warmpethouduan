@@ -77,7 +77,12 @@ export default function PlayerPage() {
       fieldProps: { placeholder: '搜索 玩家ID / openid / unionid' },
     },
     { title: '玩家ID', dataIndex: 'id', hideInSearch: true, width: 90 },
-    { title: 'openid', dataIndex: 'openid', hideInSearch: true, copyable: true },
+    {
+      title: 'openid',
+      dataIndex: 'openid',
+      hideInSearch: true,
+      copyable: true,
+    },
     {
       title: 'unionid',
       dataIndex: 'unionid',

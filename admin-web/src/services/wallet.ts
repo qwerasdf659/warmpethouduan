@@ -1,10 +1,6 @@
 import { request } from '@umijs/max';
-import type {
-  LedgerEntry,
-  Paged,
-  ReconcileReport,
-  WalletView,
-} from '@/types';
+import type { LedgerEntry, Paged, ReconcileReport, WalletView } from '@/types';
+import { newBizId } from '@/utils/bizId';
 
 export async function listLedger(params: {
   page: number;
@@ -13,24 +9,18 @@ export async function listLedger(params: {
   pool?: 'game' | 'marketing';
   reason?: string;
 }): Promise<Paged<LedgerEntry>> {
-  return request('/admin/ledger', { method: 'GET', params });
+  return request('/admin/wallet/ledger', { method: 'GET', params });
 }
 
 export async function getPlayerWallet(
   id: string,
 ): Promise<{ wallet: WalletView }> {
-  return request(`/admin/players/${id}/wallet`, { method: 'GET' });
+  return request(`/admin/wallet/players/${id}`, { method: 'GET' });
 }
 
 /** 立即对账：校验 wallet == sum(ledger.delta)，只读不写。 */
 export async function runReconcile(): Promise<ReconcileReport> {
-  return request('/admin/reconcile', { method: 'GET' });
-}
-
-function newBizId(): string {
-  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return request('/admin/wallet/reconcile', { method: 'GET' });
 }
 
 /**
@@ -66,7 +56,7 @@ export async function grantWallet(
     reason?: string;
   },
 ): Promise<{ wallet: WalletView }> {
-  return request(`/admin/players/${id}/wallet/grant`, {
+  return request(`/admin/wallet/players/${id}/grant`, {
     method: 'POST',
     data: { bizId: newBizId(), ...payload },
   });

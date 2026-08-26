@@ -4,15 +4,16 @@ import { AuthModule } from '../auth/auth.module';
 import { ItemsModule } from '../items/items.module';
 import { ItemDef } from '../entities/item-def.entity';
 import { HomeLayout } from '../entities/home-layout.entity';
-import { HomeStat } from '../entities/home-stat.entity';
+import { HomeComfortModule } from './home-comfort.module';
 import { HomeController } from './home.controller';
 import { HomeService } from './home.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([HomeLayout, HomeStat, ItemDef]),
+    TypeOrmModule.forFeature([HomeLayout, ItemDef]),
     AuthModule,
     ItemsModule,
+    HomeComfortModule,
   ],
   controllers: [HomeController],
   providers: [HomeService],

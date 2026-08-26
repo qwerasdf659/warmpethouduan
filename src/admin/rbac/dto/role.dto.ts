@@ -47,10 +47,3 @@ export class AssignRolePermissionsDto {
   @IsString({ each: true })
   permissionIds: string[];
 }
-
-export class AssignRoleMenusDto {
-  @IsArray()
-  @ArrayUnique()
-  @IsString({ each: true })
-  menuIds: string[];
-}

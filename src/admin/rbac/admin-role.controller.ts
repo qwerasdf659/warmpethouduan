@@ -17,7 +17,6 @@ import { Audit } from '../decorators/audit.decorator';
 import { AdminAuditInterceptor } from '../audit/admin-audit.interceptor';
 import { AdminRoleService } from './admin-role.service';
 import {
-  AssignRoleMenusDto,
   AssignRolePermissionsDto,
   CreateRoleDto,
   UpdateRoleDto,
@@ -70,12 +69,5 @@ export class AdminRoleController {
     @Body() dto: AssignRolePermissionsDto,
   ) {
     return this.service.setPermissions(id, dto);
-  }
-
-  @Put(':id/menus')
-  @RequirePermissions('role:write')
-  @Audit('分配角色菜单', 'admin_role')
-  setMenus(@Param('id') id: string, @Body() dto: AssignRoleMenusDto) {
-    return this.service.setMenus(id, dto);
   }
 }

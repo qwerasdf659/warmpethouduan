@@ -77,9 +77,7 @@ export default function AuditLogPage() {
         }}
         request={async (params) => {
           const successVal = (params as any).success as
-            | 'true'
-            | 'false'
-            | undefined;
+            'true' | 'false' | undefined;
           const res = await listAuditLogs({
             page: params.current ?? 1,
             pageSize: params.pageSize ?? 20,

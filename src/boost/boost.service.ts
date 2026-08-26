@@ -7,7 +7,8 @@ import {
 } from '../common/time/business-day';
 import { GameConfigService } from '../config/game-config.service';
 import { EconomyService } from '../economy/economy.service';
-import { PetService, PetStateView } from '../pet/pet.service';
+import type { PetStateView } from '../pet/pet-math';
+import { PetService } from '../pet/pet.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { AdTokenService } from './ad-token.service';
 

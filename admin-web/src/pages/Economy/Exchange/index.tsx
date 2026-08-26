@@ -65,7 +65,12 @@ export default function ExchangePage() {
           ? `${r.address.receiver} ${r.address.phone} ${r.address.region}${r.address.detail}`
           : '-',
     },
-    { title: '物流单号', dataIndex: 'trackingNo', hideInSearch: true, render: (v) => (v as string) ?? '-' },
+    {
+      title: '物流单号',
+      dataIndex: 'trackingNo',
+      hideInSearch: true,
+      render: (v) => (v as string) ?? '-',
+    },
     {
       title: '下单时间',
       dataIndex: 'createdAt',
@@ -125,7 +130,9 @@ export default function ExchangePage() {
             <ProFormText
               name="trackingNo"
               label="物流单号"
-              placeholder={record.itemType === 'physical' ? '实物请填写' : '虚拟可留空'}
+              placeholder={
+                record.itemType === 'physical' ? '实物请填写' : '虚拟可留空'
+              }
             />
             <ProFormTextArea name="remark" label="备注" />
           </ModalForm>,

@@ -4,7 +4,8 @@ import { Repository } from 'typeorm';
 import { LockService } from '../common/lock/lock.service';
 import { GameConfigService } from '../config/game-config.service';
 import { EconomyService } from '../economy/economy.service';
-import { PetService, PetStateView } from '../pet/pet.service';
+import type { PetStateView } from '../pet/pet-math';
+import { PetService } from '../pet/pet.service';
 import { ItemsService } from '../items/items.service';
 import { DexClaim } from '../entities/dex-claim.entity';
 import {

@@ -16,7 +16,9 @@ import { PlayerStatusGuard } from '../auth/player-status.guard';
 import { BuyItemDto, EquipDto, UnequipDto } from './dto/wardrobe.dto';
 import { WardrobeService } from './wardrobe.service';
 
-@Controller('wardrobe')
+// 与 items/consumables 同属 items 模块，统一挂在 items/ 下，
+// 免得同一个背包域一半在 /items 一半在顶级 /wardrobe。
+@Controller('items/wardrobe')
 @UseGuards(JwtAuthGuard, PlayerStatusGuard)
 export class WardrobeController {
   constructor(private readonly wardrobe: WardrobeService) {}

@@ -3,8 +3,13 @@ import type { GameConfigView, ItemDefView } from '@/types';
 
 // -------- 物品定义（item_def）--------
 
-export async function listItems(type?: string): Promise<{ list: ItemDefView[] }> {
-  return request('/admin/items', { method: 'GET', params: type ? { type } : {} });
+export async function listItems(
+  type?: string,
+): Promise<{ list: ItemDefView[] }> {
+  return request('/admin/items', {
+    method: 'GET',
+    params: type ? { type } : {},
+  });
 }
 
 export async function createItem(

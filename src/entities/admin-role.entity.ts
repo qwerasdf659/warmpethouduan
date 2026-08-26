@@ -9,12 +9,14 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { AdminPermission } from './admin-permission.entity';
-import { AdminMenu } from './admin-menu.entity';
 
 /**
  * 后台角色。code 唯一（如 'super_admin'、'ops'、'viewer'）。
  * isSystem=true 的内置角色禁止删除/改 code（尤其 super_admin：拥有全部权限）。
- * 角色 —(多对多)— 权限 / 菜单，中间表列名显式 snake_case。
+ * 角色 —(多对多)— 权限，中间表列名显式 snake_case。
+ *
+ * 菜单可见性**不在这里**：由 `admin_menu.permission_code` 与角色权限集求交得出
+ * （见 AdminAccessService.resolveMenus）。菜单授权只有这一套真相源。
  */
 @Entity('admin_role')
 export class AdminRole {
@@ -41,14 +43,6 @@ export class AdminRole {
     inverseJoinColumn: { name: 'permission_id', referencedColumnName: 'id' },
   })
   permissions: AdminPermission[];
-
-  @ManyToMany(() => AdminMenu)
-  @JoinTable({
-    name: 'admin_role_menu',
-    joinColumn: { name: 'role_id', referencedColumnName: 'id' },
-    inverseJoinColumn: { name: 'menu_id', referencedColumnName: 'id' },
-  })
-  menus: AdminMenu[];
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

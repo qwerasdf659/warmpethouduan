@@ -317,12 +317,12 @@ describe('玩法主链路 (e2e, 连真库)', () => {
 
       // 买一件配饰并穿上（小皇冠 800 币，item_def 里 comfort=0）
       await request(server)
-        .post('/wardrobe/buy')
+        .post('/items/wardrobe/buy')
         .set(auth)
         .send({ bizId: biz('buy'), itemKey: 'acc_crown' })
         .expect(201);
       await request(server)
-        .post('/wardrobe/equip')
+        .post('/items/wardrobe/equip')
         .set(auth)
         .send({ itemKey: 'acc_crown', petId })
         .expect(201);
@@ -480,7 +480,7 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       // 三种皮肤：skin_default 免费但走不到 buy（price=0 会被拒），故买两款付费皮肤
       for (const key of ['skin_snow', 'skin_tiger']) {
         await request(server)
-          .post('/wardrobe/buy')
+          .post('/items/wardrobe/buy')
           .set(auth)
           .send({ bizId: biz(`buy-${key}`), itemKey: key })
           .expect(201);
@@ -502,7 +502,7 @@ describe('玩法主链路 (e2e, 连真库)', () => {
 
       // 补第三种（背景也算 accessory，这里再买一款皮肤凑齐）
       await request(server)
-        .post('/wardrobe/buy')
+        .post('/items/wardrobe/buy')
         .set(auth)
         .send({ bizId: biz('buy-bg'), itemKey: 'bg_garden' })
         .expect(201);
@@ -638,18 +638,18 @@ describe('玩法主链路 (e2e, 连真库)', () => {
 
       for (const key of ['bg_garden', 'acc_cap']) {
         await request(server)
-          .post('/wardrobe/buy')
+          .post('/items/wardrobe/buy')
           .set(auth)
           .send({ bizId: biz(`buy-${key}`), itemKey: key })
           .expect(201);
       }
       await request(server)
-        .post('/wardrobe/equip')
+        .post('/items/wardrobe/equip')
         .set(auth)
         .send({ itemKey: 'bg_garden', petId })
         .expect(201);
       const res = await request(server)
-        .post('/wardrobe/equip')
+        .post('/items/wardrobe/equip')
         .set(auth)
         .send({ itemKey: 'acc_cap', petId })
         .expect(201);
@@ -667,7 +667,7 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       const auth = { Authorization: `Bearer ${p.token}` };
 
       await request(server)
-        .post('/ad/verify')
+        .post('/boost/ad/verify')
         .set(auth)
         .send({ bizId: biz('ad') })
         .expect(400);
@@ -679,7 +679,7 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       const auth = { Authorization: `Bearer ${p.token}` };
 
       await request(server)
-        .post('/ad/verify')
+        .post('/boost/ad/verify')
         .set(auth)
         .send({ bizId: biz('ad'), adToken: 'forged-nonce' })
         .expect(400);
@@ -691,7 +691,7 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       const auth = { Authorization: `Bearer ${p.token}` };
 
       const issued = await request(server)
-        .post('/ad/token')
+        .post('/boost/ad/token')
         .set(auth)
         .send({ scene: 'ad_reward' })
         .expect(201);
@@ -699,7 +699,7 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       expect(nonce).toBeTruthy();
 
       const ok = await request(server)
-        .post('/ad/verify')
+        .post('/boost/ad/verify')
         .set(auth)
         .send({ bizId: biz('ad-1'), adToken: nonce })
         .expect(201);
@@ -709,11 +709,108 @@ describe('玩法主链路 (e2e, 连真库)', () => {
 
       // 凭证是一次性的：换新 bizId 复用同一枚也不行
       await request(server)
-        .post('/ad/verify')
+        .post('/boost/ad/verify')
         .set(auth)
         .send({ bizId: biz('ad-2'), adToken: nonce })
         .expect(400);
       expect((await e2e.walletOf(p.userId)).gameCoin).toBe(gained);
+    });
+  });
+
+  describe('付费增值：加速清冷却 / 恢复体力', () => {
+    it('加速：扣费并清掉互动冷却，同 bizId 重放不二次扣费', async () => {
+      const p = await e2e.createPlayer();
+      const auth = { Authorization: `Bearer ${p.token}` };
+      await e2e.fundWallet(p.userId, { game: 1000 });
+
+      await request(server)
+        .post('/pet/create')
+        .set(auth)
+        .send({ bizId: biz('create') })
+        .expect(201);
+      // 喂食会写下该动作的冷却，给加速一个真实可清的目标
+      await request(server)
+        .post('/pet/feed')
+        .set(auth)
+        .send({ bizId: biz('feed') })
+        .expect(201);
+
+      const before = await e2e.walletOf(p.userId);
+      const bizId = biz('speedup');
+      const res = await request(server)
+        .post('/boost/speedup')
+        .set(auth)
+        .send({ bizId })
+        .expect(201);
+
+      const body = res.body as { cleared: number; gameCoin: number };
+      expect(body.cleared).toBeGreaterThan(0);
+      const after = await e2e.walletOf(p.userId);
+      expect(after.gameCoin).toBeLessThan(before.gameCoin);
+      expect(after.gameCoin).toBe(body.gameCoin);
+
+      // 幂等：同一 bizId 重放只回放结果，不再扣一次
+      await request(server)
+        .post('/boost/speedup')
+        .set(auth)
+        .send({ bizId })
+        .expect(201);
+      expect((await e2e.walletOf(p.userId)).gameCoin).toBe(after.gameCoin);
+    });
+
+    it('恢复体力：扣费并把体力回到当前等级上限', async () => {
+      const p = await e2e.createPlayer();
+      const auth = { Authorization: `Bearer ${p.token}` };
+      await e2e.fundWallet(p.userId, { game: 1000 });
+
+      const created = await request(server)
+        .post('/pet/create')
+        .set(auth)
+        .send({ bizId: biz('create') })
+        .expect(201);
+      const petId = (created.body as { pet: { id: string } }).pet.id;
+
+      // 直接压低体力：race 之类的消耗路径会牵进赛道配置，这里只想验证恢复本身
+      await e2e.db.query(`UPDATE pet SET stamina = 1 WHERE id = $1`, [petId]);
+
+      const before = await e2e.walletOf(p.userId);
+      const res = await request(server)
+        .post('/boost/stamina/recover')
+        .set(auth)
+        .send({ bizId: biz('recover') })
+        .expect(201);
+
+      const body = res.body as {
+        pet: { stamina: number; staminaMax: number };
+        gameCoin: number;
+      };
+      expect(body.pet.stamina).toBe(body.pet.staminaMax);
+      const after = await e2e.walletOf(p.userId);
+      expect(after.gameCoin).toBeLessThan(before.gameCoin);
+      expect(after.gameCoin).toBe(body.gameCoin);
+    });
+
+    it('余额不足：两个端点都拒绝，且一分不扣', async () => {
+      const p = await e2e.createPlayer();
+      const auth = { Authorization: `Bearer ${p.token}` };
+      await request(server)
+        .post('/pet/create')
+        .set(auth)
+        .send({ bizId: biz('create') })
+        .expect(201);
+
+      await request(server)
+        .post('/boost/speedup')
+        .set(auth)
+        .send({ bizId: biz('speedup-poor') })
+        .expect(400);
+      await request(server)
+        .post('/boost/stamina/recover')
+        .set(auth)
+        .send({ bizId: biz('recover-poor') })
+        .expect(400);
+
+      expect((await e2e.walletOf(p.userId)).gameCoin).toBe(0);
     });
   });
 
@@ -804,7 +901,7 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       await e2e.fundWallet(p.userId, { marketing: 5000 });
 
       const addr = await request(server)
-        .post('/address')
+        .post('/exchange/address')
         .set(auth)
         .send({
           receiver: '测试',
@@ -877,7 +974,7 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       await e2e.fundWallet(p.userId, { marketing: 5000 });
 
       const addr = await request(server)
-        .post('/address')
+        .post('/exchange/address')
         .set(auth)
         .send({
           receiver: '测试',

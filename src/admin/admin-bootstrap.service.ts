@@ -87,7 +87,6 @@ export class AdminBootstrapService implements OnApplicationBootstrap {
         description: '拥有全部权限，系统内置',
         isSystem: true,
         permissions: allPerms,
-        menus: [],
       });
       await this.roles.save(role);
       this.logger.log('创建内置角色 super_admin');

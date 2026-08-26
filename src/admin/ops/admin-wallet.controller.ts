@@ -26,8 +26,12 @@ import {
 /**
  * 后台钱包与流水：全局流水（wallet:read）+ 人工发币/扣币（wallet:write）。
  * 发币/扣币带 bizId 幂等（IdempotencyInterceptor）并落审计（@Audit）。
+ *
+ * 前缀必须是 `admin/wallet` 而不是裸 `admin`：后者会和 AdminPlayersController
+ * （`admin/players`）共享路径空间，`/admin/players/:id/...` 由谁接管取决于模块
+ * 注册顺序 —— 那是靠运气而不是靠设计。
  */
-@Controller('admin')
+@Controller('admin/wallet')
 @UseGuards(AdminJwtAuthGuard, RolesGuard)
 @UseInterceptors(AdminAuditInterceptor)
 export class AdminWalletController {
@@ -42,7 +46,7 @@ export class AdminWalletController {
     return this.service.listLedger(q);
   }
 
-  @Get('players/:id/wallet')
+  @Get('players/:id')
   @RequirePermissions('wallet:read')
   getWallet(@Param('id') id: string) {
     return this.service.getWallet(id);
@@ -58,7 +62,7 @@ export class AdminWalletController {
     return this.reconcileService.run();
   }
 
-  @Post('players/:id/wallet/grant')
+  @Post('players/:id/grant')
   @RequirePermissions('wallet:write')
   @Idempotent()
   @UseInterceptors(IdempotencyInterceptor)
@@ -71,7 +75,7 @@ export class AdminWalletController {
    * 批量发币/扣币。返回 `{ total, succeeded, failed[] }`——
    * 部分失败仍返回 200，运营看 `failed` 决定补发，不用整批重来。
    */
-  @Post('wallet/grant-bulk')
+  @Post('grant-bulk')
   @RequirePermissions('wallet:write')
   @Idempotent()
   @UseInterceptors(IdempotencyInterceptor)

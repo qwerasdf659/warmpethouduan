@@ -27,7 +27,9 @@ export default function AdminUserPage() {
   const [roles, setRoles] = useState<Role[]>([]);
 
   useEffect(() => {
-    listRoles().then(setRoles).catch(() => void 0);
+    listRoles()
+      .then(setRoles)
+      .catch(() => void 0);
   }, []);
 
   const roleOptions = roles.map((r) => ({ label: r.name, value: r.id }));

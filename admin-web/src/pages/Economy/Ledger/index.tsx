@@ -280,7 +280,9 @@ export default function LedgerPage() {
                 </div>
               ))}
               {report.mismatches.length > 10 ? (
-                <div>…… 其余 {report.mismatches.length - 10} 条见服务端日志</div>
+                <div>
+                  …… 其余 {report.mismatches.length - 10} 条见服务端日志
+                </div>
               ) : null}
               <div style={{ marginTop: 8, color: '#8c8c8c' }}>
                 差额为正说明余额多于流水（通常是手工改过余额没补流水）。

@@ -1,5 +1,6 @@
 import { request } from '@umijs/max';
 import type { Paged, PetStateView, PlayerDetail, PlayerView } from '@/types';
+import { newBizId } from '@/utils/bizId';
 
 export async function listPlayers(params: {
   page: number;
@@ -13,13 +14,6 @@ export async function getPlayerDetail(id: string): Promise<PlayerDetail> {
   return request(`/admin/players/${id}`, { method: 'GET' });
 }
 
-/** 生成本次写操作的幂等 bizId（浏览器原生 UUID）。 */
-function newBizId(): string {
-  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
 export async function banPlayer(
   id: string,
   reason?: string,
@@ -30,9 +24,7 @@ export async function banPlayer(
   });
 }
 
-export async function unbanPlayer(
-  id: string,
-): Promise<{ player: PlayerView }> {
+export async function unbanPlayer(id: string): Promise<{ player: PlayerView }> {
   return request(`/admin/players/${id}/unban`, {
     method: 'POST',
     data: { bizId: newBizId() },

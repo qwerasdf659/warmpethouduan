@@ -11,81 +11,56 @@ import { Access, useAccess } from '@umijs/max';
 import { Button, message, Modal, Popconfirm, Tag, Tree } from 'antd';
 import type { DataNode } from 'antd/es/tree';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { listMenus } from '@/services/menu';
 import { listPermissions } from '@/services/permission';
 import {
   createRole,
   deleteRole,
   getRole,
   listRoles,
-  setRoleMenus,
   setRolePermissions,
   updateRole,
 } from '@/services/role';
-import type { MenuNode, Permission, Role } from '@/types';
-
-function buildMenuTree(menus: MenuNode[]): DataNode[] {
-  const byParent = new Map<string | null, MenuNode[]>();
-  for (const m of menus) {
-    const key = m.parentId;
-    if (!byParent.has(key)) byParent.set(key, []);
-    byParent.get(key)!.push(m);
-  }
-  const make = (parentId: string | null): DataNode[] =>
-    (byParent.get(parentId) ?? [])
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map((m) => ({
-        key: m.id,
-        title: `${m.name}（${m.type}）`,
-        children: make(m.id),
-      }));
-  return make(null);
-}
+import type { Permission, Role } from '@/types';
 
 export default function RolePage() {
   const actionRef = useRef<ActionType>();
   const access = useAccess();
 
   const [perms, setPerms] = useState<Permission[]>([]);
-  const [menus, setMenus] = useState<MenuNode[]>([]);
   const permIds = useMemo(() => new Set(perms.map((p) => p.id)), [perms]);
 
   const [permModal, setPermModal] = useState<{ role: Role } | null>(null);
-  const [menuModal, setMenuModal] = useState<{ role: Role } | null>(null);
   const [checkedPerms, setCheckedPerms] = useState<string[]>([]);
-  const [checkedMenus, setCheckedMenus] = useState<string[]>([]);
 
   useEffect(() => {
-    listPermissions().then(setPerms).catch(() => void 0);
-    listMenus().then(setMenus).catch(() => void 0);
+    listPermissions()
+      .then(setPerms)
+      .catch(() => void 0);
   }, []);
 
   const permTree: DataNode[] = useMemo(() => {
     const byGroup = new Map<string, Permission[]>();
     for (const p of perms) {
       const g = p.group ?? '其他';
-      if (!byGroup.has(g)) byGroup.set(g, []);
-      byGroup.get(g)!.push(p);
+      const group = byGroup.get(g);
+      if (group) group.push(p);
+      else byGroup.set(g, [p]);
     }
     return [...byGroup.entries()].map(([g, items]) => ({
       key: `group:${g}`,
       title: g,
       selectable: false,
-      children: items.map((p) => ({ key: p.id, title: `${p.name}（${p.code}）` })),
+      children: items.map((p) => ({
+        key: p.id,
+        title: `${p.name}（${p.code}）`,
+      })),
     }));
   }, [perms]);
-
-  const menuTree = useMemo(() => buildMenuTree(menus), [menus]);
 
   const openPermModal = async (role: Role) => {
     const full = await getRole(role.id);
     setCheckedPerms((full.permissions ?? []).map((p) => p.id));
     setPermModal({ role: full });
-  };
-  const openMenuModal = async (role: Role) => {
-    const full = await getRole(role.id);
-    setCheckedMenus((full.menus ?? []).map((m) => m.id));
-    setMenuModal({ role: full });
   };
 
   const columns: ProColumns<Role>[] = [
@@ -116,9 +91,6 @@ export default function RolePage() {
         <Access key="perm" accessible={access.canWriteRole}>
           <a onClick={() => openPermModal(record)}>分配权限</a>
         </Access>,
-        <Access key="menu" accessible={access.canWriteRole}>
-          <a onClick={() => openMenuModal(record)}>分配菜单</a>
-        </Access>,
         <Access key="edit" accessible={access.canWriteRole}>
           <ModalForm
             title="编辑角色"
@@ -135,7 +107,11 @@ export default function RolePage() {
               return true;
             }}
           >
-            <ProFormText name="name" label="名称" rules={[{ required: true }]} />
+            <ProFormText
+              name="name"
+              label="名称"
+              rules={[{ required: true }]}
+            />
             <ProFormTextArea name="description" label="描述" />
           </ModalForm>
         </Access>,
@@ -192,7 +168,11 @@ export default function RolePage() {
                 placeholder="如 ops"
                 rules={[{ required: true }]}
               />
-              <ProFormText name="name" label="名称" rules={[{ required: true }]} />
+              <ProFormText
+                name="name"
+                label="名称"
+                rules={[{ required: true }]}
+              />
               <ProFormTextArea name="description" label="描述" />
             </ModalForm>
           </Access>,
@@ -216,32 +196,8 @@ export default function RolePage() {
         <Tree
           checkable
           checkedKeys={checkedPerms}
-          onCheck={(keys) =>
-            setCheckedPerms((keys as string[]).map(String))
-          }
+          onCheck={(keys) => setCheckedPerms((keys as string[]).map(String))}
           treeData={permTree}
-          defaultExpandAll
-        />
-      </Modal>
-
-      <Modal
-        title={`分配菜单 · ${menuModal?.role.name ?? ''}`}
-        open={!!menuModal}
-        destroyOnClose
-        onCancel={() => setMenuModal(null)}
-        onOk={async () => {
-          if (!menuModal) return;
-          await setRoleMenus(menuModal.role.id, checkedMenus);
-          message.success('菜单已保存');
-          setMenuModal(null);
-          actionRef.current?.reload();
-        }}
-      >
-        <Tree
-          checkable
-          checkedKeys={checkedMenus}
-          onCheck={(keys) => setCheckedMenus((keys as string[]).map(String))}
-          treeData={menuTree}
           defaultExpandAll
         />
       </Modal>
