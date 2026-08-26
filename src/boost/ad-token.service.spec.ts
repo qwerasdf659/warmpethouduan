@@ -5,7 +5,7 @@ import { GameConfigService } from '../config/game-config.service';
 import { AdTokenService } from './ad-token.service';
 import { BOOST_CONFIG } from './boost.config';
 
-/** 桩只声明各用例真正用到的 Redis 命令：签发走 get/set/incr/expire，核销走 eval。 */
+/** 桩只声明各用例真正用到的 Redis 命令：签发与核销都走 eval（原子 Lua）。 */
 type RedisStub = Partial<
   Record<'get' | 'set' | 'incr' | 'expire' | 'eval', jest.Mock>
 >;
@@ -26,18 +26,16 @@ describe('AdTokenService', () => {
     return new AdTokenService(clock, config, redis as unknown as Redis);
   }
 
-  /** 未达每日上限、写入均成功的签发环境。 */
-  function issueRedis(): RedisStub {
-    return {
-      get: jest.fn(() => Promise.resolve(null)),
-      set: jest.fn(() => Promise.resolve('OK')),
-      incr: jest.fn(() => Promise.resolve(1)),
-      expire: jest.fn(() => Promise.resolve(1)),
-    };
+  /**
+   * 未达上限的签发环境：签发走一次 eval（原子 Lua），返回自增后的计数。
+   * @param n 该次 eval 返回的计数（默认 1，即当天首枚）。
+   */
+  function issueRedis(n = 1): RedisStub {
+    return { eval: jest.fn(() => Promise.resolve(n)) };
   }
 
   describe('issue 签发', () => {
-    it('返回一次性 nonce 并按 TTL 落 Redis', async () => {
+    it('返回一次性 nonce，并用一次 eval 原子写 cap+nonce', async () => {
       const redis = issueRedis();
       const svc = makeService(redis);
 
@@ -47,12 +45,16 @@ describe('AdTokenService', () => {
       expect(res.nonce).toMatch(/^[0-9a-f]{32}$/);
       expect(res.expiresInSec).toBe(AD_TOKEN.ttlSec);
       expect(res.remaining).toBe(AD_TOKEN.dailyCapPerScene - 1);
-      expect(redis.set).toHaveBeenCalledWith(
-        `adtoken:u1:${res.nonce}`,
-        'race_double',
-        'EX',
-        AD_TOKEN.ttlSec,
-      );
+
+      // eval(script, numKeys=2, capKey, nonceKey, cap, scene, nonceTtl, capTtl)
+      const call = redis.eval!.mock.calls[0] as unknown[];
+      expect(call[0]).toEqual(expect.stringContaining("redis.call('INCR'"));
+      expect(call[1]).toBe(2);
+      expect(call[2]).toBe('adtoken:cap:u1:20260101:race_double');
+      expect(call[3]).toBe(`adtoken:u1:${res.nonce}`);
+      expect(call[4]).toBe(String(AD_TOKEN.dailyCapPerScene));
+      expect(call[5]).toBe('race_double');
+      expect(call[6]).toBe(String(AD_TOKEN.ttlSec));
     });
 
     it('每次签发的 nonce 不重复', async () => {
@@ -63,59 +65,51 @@ describe('AdTokenService', () => {
       expect(a.nonce).not.toBe(b.nonce);
     });
 
-    it('达每日上限：拒绝签发且不写 Redis', async () => {
-      const redis: RedisStub = {
-        get: jest.fn(() => Promise.resolve(String(AD_TOKEN.dailyCapPerScene))),
-        set: jest.fn(),
-        incr: jest.fn(),
-        expire: jest.fn(),
-      };
+    it('达每日上限（Lua 返回 -1）：拒绝签发', async () => {
+      const redis: RedisStub = { eval: jest.fn(() => Promise.resolve(-1)) };
       const svc = makeService(redis);
 
       await expect(svc.issue('u1', 'race_double')).rejects.toBeInstanceOf(
         BadRequestException,
       );
-      expect(redis.set).not.toHaveBeenCalled();
     });
 
-    it('凭证按 userId 隔离（key 带 userId）', async () => {
+    it('remaining 按 Lua 返回的计数递减（第 3 枚 → 剩 cap-3）', async () => {
+      const svc = makeService(issueRedis(3));
+
+      const res = await svc.issue('u1', 'race_double');
+      expect(res.remaining).toBe(AD_TOKEN.dailyCapPerScene - 3);
+    });
+
+    it('凭证按 userId 隔离（nonceKey 带 userId）', async () => {
       const redis = issueRedis();
       const svc = makeService(redis);
 
       const res = await svc.issue('u2', 'race_revive');
-      expect(redis.set).toHaveBeenCalledWith(
-        `adtoken:u2:${res.nonce}`,
-        'race_revive',
-        'EX',
-        AD_TOKEN.ttlSec,
-      );
+      const call = redis.eval!.mock.calls[0] as unknown[];
+      expect(call[3]).toBe(`adtoken:u2:${res.nonce}`);
     });
 
-    it('每日计数按业务日分桶，并设到次日业务日重置', async () => {
+    it('每日计数按业务日分桶，capKey TTL 落在次日业务日切之内', async () => {
       const redis = issueRedis();
       const svc = makeService(redis);
 
       await svc.issue('u1', 'race_double');
 
       // 2026-01-01T04:00:00Z = 北京时间 12:00，业务日 20260101
-      const capKey = 'adtoken:cap:u1:20260101:race_double';
-      expect(redis.incr).toHaveBeenCalledWith(capKey);
-      const [key, ttl] = redis.expire!.mock.calls[0] as [string, number];
-      expect(key).toBe(capKey);
-      expect(ttl).toBeGreaterThan(0);
-      expect(ttl).toBeLessThanOrEqual(86400);
+      const call = redis.eval!.mock.calls[0] as unknown[];
+      expect(call[2]).toBe('adtoken:cap:u1:20260101:race_double');
+      const capTtl = Number(call[7]);
+      expect(capTtl).toBeGreaterThan(0);
+      expect(capTtl).toBeLessThanOrEqual(86400);
     });
 
-    it('上限被运营改小后立即按新值拒绝', async () => {
+    it('上限值随配置传入 Lua（运营改小后由 Lua 按新值判定）', async () => {
       const tightConfig = {
         get: () => Promise.resolve({ ...AD_TOKEN, dailyCapPerScene: 1 }),
       } as unknown as GameConfigService;
-      const redis: RedisStub = {
-        get: jest.fn(() => Promise.resolve('1')),
-        set: jest.fn(),
-        incr: jest.fn(),
-        expire: jest.fn(),
-      };
+      // Lua 内 used(1) >= cap(1) → 返回 -1；这里桩直接给 -1 验拒绝路径
+      const redis: RedisStub = { eval: jest.fn(() => Promise.resolve(-1)) };
       const svc = new AdTokenService(
         clock,
         tightConfig,
@@ -125,7 +119,8 @@ describe('AdTokenService', () => {
       await expect(svc.issue('u1', 'race_double')).rejects.toBeInstanceOf(
         BadRequestException,
       );
-      expect(redis.set).not.toHaveBeenCalled();
+      const call = redis.eval!.mock.calls[0] as unknown[];
+      expect(call[4]).toBe('1');
     });
   });
 

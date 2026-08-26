@@ -37,6 +37,25 @@ redis.call('DEL', KEYS[1])
 return 1
 `;
 
+  /**
+   * 原子签发：读日计数 → 判断上限 → 自增计数并续 TTL → 写 nonce，全在一次 eval 内完成。
+   * 返回自增后的计数 n（≥1）；-1 = 已达上限，此时不写任何键。
+   *
+   * 为什么必须原子：分成 `GET` 判断 + `INCR` 两条命令时，并发签发会同时读到同一个 used、
+   * 同时通过上限校验、各拿一枚有效 nonce，导致超发——可无限放大赛跑翻倍/复活次数。
+   * 与 `consume()` 用 Lua 防双花同理，签发侧同样要原子。
+   *
+   * KEYS[1]=capKey KEYS[2]=nonceKey；ARGV[1]=每日上限 [2]=scene [3]=nonce TTL秒 [4]=capKey TTL秒。
+   */
+  private static readonly ISSUE_LUA = `
+local used = tonumber(redis.call('GET', KEYS[1]) or '0')
+if used >= tonumber(ARGV[1]) then return -1 end
+local n = redis.call('INCR', KEYS[1])
+redis.call('EXPIRE', KEYS[1], tonumber(ARGV[4]))
+redis.call('SET', KEYS[2], ARGV[2], 'EX', tonumber(ARGV[3]))
+return n
+`;
+
   constructor(
     private readonly clock: ClockService,
     private readonly config: GameConfigService,
@@ -49,22 +68,28 @@ return 1
     const now = this.clock.now();
     const day = businessDayKey(now);
     const capKey = `adtoken:cap:${userId}:${day}:${scene}`;
+    const nonce = randomBytes(16).toString('hex');
 
-    const used = parseInt((await this.redis.get(capKey)) ?? '0', 10);
-    if (used >= cfg.dailyCapPerScene) {
+    const n = (await this.redis.eval(
+      AdTokenService.ISSUE_LUA,
+      2,
+      capKey,
+      this.keyOf(userId, nonce),
+      String(cfg.dailyCapPerScene),
+      scene,
+      String(cfg.ttlSec),
+      String(secondsUntilNextBusinessDay(now)),
+    )) as number;
+
+    if (n === -1) {
       throw new BadRequestException('今日该场景的广告次数已用尽');
     }
-
-    const nonce = randomBytes(16).toString('hex');
-    await this.redis.set(this.keyOf(userId, nonce), scene, 'EX', cfg.ttlSec);
-    await this.redis.incr(capKey);
-    await this.redis.expire(capKey, secondsUntilNextBusinessDay(now));
 
     return {
       nonce,
       scene,
       expiresInSec: cfg.ttlSec,
-      remaining: Math.max(0, cfg.dailyCapPerScene - (used + 1)),
+      remaining: Math.max(0, cfg.dailyCapPerScene - n),
     };
   }
 

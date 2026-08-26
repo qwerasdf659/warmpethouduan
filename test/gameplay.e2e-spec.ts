@@ -1,6 +1,7 @@
 import { Server } from 'node:http';
 import request from 'supertest';
 import { E2eApp } from './helpers/e2e-app';
+import { GameConfigService } from '../src/config/game-config.service';
 
 /**
  * 连真库的玩法主链路 e2e。
@@ -714,6 +715,47 @@ describe('玩法主链路 (e2e, 连真库)', () => {
         .send({ bizId: biz('ad-2'), adToken: nonce })
         .expect(400);
       expect((await e2e.walletOf(p.userId)).gameCoin).toBe(gained);
+    });
+
+    // 回归 P0-3：签发侧的每日上限必须原子。并发领券时成功数必须恰好等于配置上限，
+    // 而不是被 check-then-act 的竞态放大。修复前（GET 判断 + INCR 分两条命令）此断言必挂。
+    it('并发领券：成功数恰等于每日上限，不超发', async () => {
+      const p = await e2e.createPlayer();
+      const auth = { Authorization: `Bearer ${p.token}` };
+      const scene = 'race_double';
+
+      // 清掉限流计数，保证这一波并发不会撞上 @nestjs/throttler 的 429
+      await e2e.resetThrottle();
+
+      const cfg = await e2e.app.get(GameConfigService).get('boost.ad_token');
+      const cap = cfg.dailyCapPerScene;
+      const burst = cap + 6; // 超过上限，逼出竞态
+
+      const results = await Promise.all(
+        Array.from({ length: burst }, () =>
+          request(server).post('/boost/ad/token').set(auth).send({ scene }),
+        ),
+      );
+
+      const ok = results.filter((r) => r.status === 201);
+      const rejected = results.filter((r) => r.status === 400);
+
+      // 核心断言：成功数不多不少，正好等于上限
+      expect(ok.length).toBe(cap);
+      expect(rejected.length).toBe(burst - cap);
+
+      // 每枚成功凭证的 nonce 互不相同（没有两个请求领到同一枚）
+      const nonces = new Set(
+        ok.map((r) => (r.body as { nonce: string }).nonce),
+      );
+      expect(nonces.size).toBe(cap);
+
+      // Redis 侧的日计数也应恰好停在上限，而非被超发抬高
+      const capKeys = await e2e.redis.keys(
+        `adtoken:cap:${p.userId}:*:${scene}`,
+      );
+      expect(capKeys).toHaveLength(1);
+      expect(Number(await e2e.redis.get(capKeys[0]))).toBe(cap);
     });
   });
 
