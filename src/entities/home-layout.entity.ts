@@ -15,6 +15,7 @@ import { User } from './user.entity';
  */
 @Entity('home_layout')
 @Index('idx_home_layout_user', ['userId'])
+@Index('idx_home_layout_asset', ['userId', 'assetCode'])
 export class HomeLayout {
   @PrimaryGeneratedColumn('increment', { type: 'bigint' })
   id: string;
@@ -26,8 +27,9 @@ export class HomeLayout {
   @JoinColumn({ name: 'user_id' })
   user?: User;
 
-  @Column({ name: 'item_def_id', type: 'bigint' })
-  itemDefId: string;
+  /** 摆放的家具资产 code。家具是 `stackable`，同款多件靠多行摆放行表达 */
+  @Column({ name: 'asset_code', type: 'varchar', length: 48 })
+  assetCode: string;
 
   @Column({ name: 'pos_x', type: 'int', default: 0 })
   posX: number;
