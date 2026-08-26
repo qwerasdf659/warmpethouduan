@@ -1,7 +1,9 @@
 import { request } from '@umijs/max';
 import type { GameConfigView, ItemDefView } from '@/types';
 
-// -------- 物品定义（item_def）--------
+// -------- 资产定义（asset_def）--------
+//
+// 路径参数是 code 而非自增 id：asset_def 的主键就是 code。
 
 export async function listItems(
   type?: string,
@@ -13,20 +15,20 @@ export async function listItems(
 }
 
 export async function createItem(
-  data: Partial<ItemDefView>,
+  data: Partial<ItemDefView> & { key?: string },
 ): Promise<{ item: ItemDefView }> {
   return request('/admin/items', { method: 'POST', data });
 }
 
 export async function updateItem(
-  id: string,
+  code: string,
   data: Partial<ItemDefView>,
 ): Promise<{ item: ItemDefView }> {
-  return request(`/admin/items/${id}`, { method: 'PUT', data });
+  return request(`/admin/items/${code}`, { method: 'PUT', data });
 }
 
-export async function deleteItem(id: string): Promise<{ ok: true }> {
-  return request(`/admin/items/${id}`, { method: 'DELETE' });
+export async function deleteItem(code: string): Promise<{ ok: true }> {
+  return request(`/admin/items/${code}`, { method: 'DELETE' });
 }
 
 // -------- 配置中心（game_config）--------

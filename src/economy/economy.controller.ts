@@ -27,6 +27,7 @@ export class EconomyController {
       page: q.page,
       pageSize: q.pageSize,
       pool: q.pool,
+      assetCode: q.assetCode,
     });
   }
 }

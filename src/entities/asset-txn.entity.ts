@@ -28,7 +28,7 @@ export type TxnKind = 'issue' | 'burn' | 'transfer' | 'freeze' | 'reversal';
  * 提到凭证头后不再有 `user_id` 参与，因此前缀由 `LedgerService` 内部强制拼接，
  * 调用方无法绕过（见 `LedgerService.buildBizId`）。
  */
-@Entity('asset_txn')
+@Entity({ name: 'asset_txn', synchronize: false })
 @Check(
   'ck_asset_txn_kind',
   `"kind" IN ('issue','burn','transfer','freeze','reversal')`,

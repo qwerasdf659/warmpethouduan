@@ -14,7 +14,7 @@ import {
  * 于是「某个实例同时属于两个人」或「凭空多出一件」在结构上不可能：
  * 对账不变量 5 校验每个实例 `SUM(delta) == 1`。
  */
-@Entity('item_instance_entry')
+@Entity({ name: 'item_instance_entry', synchronize: false })
 @Check('ck_instance_entry_delta', `"delta" IN (-1, 1)`)
 @Index('uq_instance_entry', ['instanceId', 'txnId', 'accountId'], {
   unique: true,

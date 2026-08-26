@@ -339,13 +339,26 @@ function WalletCard({ playerId }: { playerId: string }) {
 
   if (!access.canReadWallet) return null;
 
+  /**
+   * 冻结部分单独展示。
+   *
+   * 交易上线后「有余额」不等于「能花」：挂单与出价会把可用余额转成冻结。
+   * 只显示可用余额的话，客服面对「我明明有 3000 币却买不了 1000 的东西」
+   * 这类工单会查不出原因 —— 那 3000 里有 2500 正锁在他自己的出价上。
+   */
+  const amount = (available?: number, frozen?: number) => {
+    if (failed) return '读取失败';
+    if (available === undefined) return '-';
+    return frozen ? `${available}（冻结 ${frozen}）` : String(available);
+  };
+
   return (
     <ProDescriptions title="钱包" column={2} loading={loading}>
       <ProDescriptions.Item label="游戏币">
-        {failed ? '读取失败' : (wallet?.gameCoin ?? '-')}
+        {amount(wallet?.gameCoin, wallet?.gameCoinFrozen)}
       </ProDescriptions.Item>
       <ProDescriptions.Item label="营销积分">
-        {failed ? '读取失败' : (wallet?.marketingPoint ?? '-')}
+        {amount(wallet?.marketingPoint, wallet?.marketingPointFrozen)}
       </ProDescriptions.Item>
     </ProDescriptions>
   );

@@ -9,8 +9,15 @@
  * 不可能长这样。
  *
  * 关联数据不写死表名，由 `sweep` 沿外键递归发现，新增业务表自动纳入。
+ * 凭证头（`asset_txn`）是父表、沿外键到不了，另用 `sweepOrphans` 收尾。
  */
-import { makeClient, printCounts, refuseInProduction, sweep } from './_db';
+import {
+  makeClient,
+  printCounts,
+  refuseInProduction,
+  sweep,
+  sweepOrphans,
+} from './_db';
 import { MOCK_OPENID_PREFIX } from '../../src/wechat/wechat.service';
 
 async function main(): Promise<void> {
@@ -46,6 +53,11 @@ async function main(): Promise<void> {
     const counts = await sweep(client, 'user', 'id', ids, {
       dryRun: !execute,
       counts: new Map(),
+    });
+    // 分录/实例删完之后，它们的凭证头才变成孤儿，所以必须放在 sweep 之后
+    await sweepOrphans(client, 'asset_txn', {
+      dryRun: !execute,
+      counts,
     });
     await client.query(execute ? 'COMMIT' : 'ROLLBACK');
 

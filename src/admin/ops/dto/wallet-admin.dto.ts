@@ -13,7 +13,7 @@ import {
 } from 'class-validator';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
-/** 后台全局流水查询。可按玩家 / 池 / 原因筛选。 */
+/** 后台全局流水查询。可按玩家 / 池 / 资产 / 原因筛选。 */
 export class QueryLedgerDto extends PaginationDto {
   @IsOptional()
   @IsString()
@@ -23,10 +23,41 @@ export class QueryLedgerDto extends PaginationDto {
   @IsIn(['game', 'marketing'])
   pool?: 'game' | 'marketing';
 
+  /**
+   * 按具体资产筛选（`asset_def.code`）。与 `pool` 同时给时本项胜出。
+   *
+   * 没有它的话，全局流水会把 31 种资产的分录混在一列里，而「池」只有两个值 ——
+   * 一条 `cons_snack +3` 会显示成「游戏币 +3」，客服据此判断就会出错。
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(48)
+  assetCode?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(32)
   reason?: string;
+}
+
+/**
+ * 冲正一张凭证（风控清单 R7：争议处理 / 盗号追回）。
+ *
+ * 这是**唯一**的账务修复手段。刻意不提供「从流水重算余额」的工具：
+ * 那类工具会忽略 `frozen` 与批次分桶，把带冻结的账户改错，
+ * 修复工具本身就成了故障源。冲正则是追加一张反向凭证，原始证据一条不动。
+ */
+export class ReverseTxnDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
+  bizId: string;
+
+  /** 冲正原因（记入审计，必填：无理由的资金操作不该存在） */
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  reason: string;
 }
 
 /**

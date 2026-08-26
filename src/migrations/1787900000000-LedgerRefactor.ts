@@ -194,7 +194,7 @@ export class LedgerRefactor1787900000000 implements MigrationInterface {
         "acquired_at"      timestamptz NOT NULL DEFAULT now(),
         "tradable_after"   timestamptz NULL,
         "minted_txn_id"    bigint      NOT NULL REFERENCES "asset_txn"("id"),
-        CONSTRAINT "ck_instance_state" CHECK ("state" IN ('held','listed','escrowed'))
+        CONSTRAINT "ck_instance_state" CHECK ("state" IN ('held','listed','escrowed','burned'))
       )
     `);
     await q.query(

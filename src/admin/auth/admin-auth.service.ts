@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -25,6 +25,8 @@ export interface AdminLoginResult {
 
 @Injectable()
 export class AdminAuthService {
+  private readonly logger = new Logger('AdminAuth');
+
   constructor(
     @InjectRepository(AdminUser)
     private readonly adminUsers: Repository<AdminUser>,
@@ -61,12 +63,17 @@ export class AdminAuthService {
     }
     if (admin.status !== 'active') {
       // 停用是管理动作而非口令猜测，不计入失败计数
+      this.logger.warn(
+        `已停用的后台账号尝试登录 username=${username} ip=${ip}`,
+      );
       throw new UnauthorizedException('管理员已被停用');
     }
 
     await this.throttle.clearFailures(username);
     admin.lastLoginAt = new Date();
     await this.adminUsers.save(admin);
+    // 后台登录是高权限入口，成功也要留痕（失败计数由 LoginThrottleService 记）
+    this.logger.log(`后台登录成功 username=${username} ip=${ip}`);
 
     const payload: AdminJwtPayload = {
       sub: admin.id,

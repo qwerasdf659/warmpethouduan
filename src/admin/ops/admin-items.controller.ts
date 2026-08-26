@@ -46,22 +46,26 @@ export class AdminItemsController {
 
   @Post()
   @RequirePermissions('config:write')
-  @Audit('新建物品', 'item_def')
+  @Audit('新建物品', 'asset_def')
   create(@Body() dto: CreateItemDefDto) {
     return this.service.create(dto);
   }
 
-  @Put(':id')
+  /**
+   * 路径参数是资产 `code` 而不是自增 id：新模型下 `asset_def` 的主键就是 code
+   * （加币种是插一行，不是加一列），自增 id 已不存在。
+   */
+  @Put(':code')
   @RequirePermissions('config:write')
-  @Audit('修改物品', 'item_def')
-  update(@Param('id') id: string, @Body() dto: UpdateItemDefDto) {
-    return this.service.update(id, dto);
+  @Audit('修改物品', 'asset_def')
+  update(@Param('code') code: string, @Body() dto: UpdateItemDefDto) {
+    return this.service.update(code, dto);
   }
 
-  @Delete(':id')
+  @Delete(':code')
   @RequirePermissions('config:write')
-  @Audit('删除物品', 'item_def')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  @Audit('删除物品', 'asset_def')
+  remove(@Param('code') code: string) {
+    return this.service.remove(code);
   }
 }

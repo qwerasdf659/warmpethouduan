@@ -11,19 +11,8 @@
  * 用法：npm run build && node scripts/b5-verify-race-ghost.js
  */
 const P = '/home/devbox/project/node_modules/';
-require(P + 'dotenv').config({ path: '/home/devbox/project/.env' });
-const { Client } = require(P + 'pg');
 const { NestFactory } = require(P + '@nestjs/core');
-
-function db() {
-  return new Client({
-    host: process.env.DB_HOST,
-    port: Number(process.env.DB_PORT),
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-  });
-}
+const { db, cleanupUser } = require('./_verify-fixture');
 
 let failures = 0;
 function check(name, ok, extra = '') {
@@ -176,12 +165,8 @@ async function main() {
     failures++;
     console.log('✗ 脚本异常中断：', e.message);
   } finally {
-    for (const id of userIds) {
-      for (const t of ['race_record', 'ledger', 'wallet', 'pet']) {
-        await c.query(`delete from ${t} where user_id = $1`, [id]);
-      }
-      await c.query(`delete from "user" where id = $1`, [id]);
-    }
+    // 清理走共用夹具：账本表经 account 中转，按 user_id 一把删删不掉
+    for (const id of userIds) await cleanupUser(c, id);
     await c.end();
     await app.close();
     console.log(failures ? `\n${failures} 项未通过` : '\n全部通过');

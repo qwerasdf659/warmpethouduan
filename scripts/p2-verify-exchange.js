@@ -6,27 +6,27 @@
  *   B. 同一 bizId 重复提交只落 1 单、只扣 1 次（幂等回放）；
  *   C. 目录里没有库存字段 —— 余额足够时可无限量兑同一实物（这是运营风险，不是并发缺陷）。
  *
- * 用法：node scripts/p2-verify-exchange.js
+ * 断言打的是 PM2 常驻进程上的真实 HTTP；造数据与清理走应用上下文，
+ * 因为余额必须经真实记账入口生成（理由见 `_verify-fixture.js`）。
+ *
+ * 用法：npm run build && node scripts/p2-verify-exchange.js
  */
 const P = '/home/devbox/project/node_modules/';
-require(P + 'dotenv').config({ path: '/home/devbox/project/.env' });
-const { Client } = require(P + 'pg');
 const jwt = require(P + 'jsonwebtoken');
-const Redis = require(P + 'ioredis');
+const {
+  MARKETING_POINT,
+  db,
+  bootApp,
+  setAsset,
+  balanceOf,
+  entryCount,
+  cleanupUser,
+  clearIdemKeys,
+} = require('./_verify-fixture');
 
 const BASE = 'http://127.0.0.1:8080';
 const CONCURRENCY = 10;
 const ITEM = 'coupon_5'; // virtual，cost 500 marketing，免收货地址
-
-function db() {
-  return new Client({
-    host: process.env.DB_HOST,
-    port: Number(process.env.DB_PORT),
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-  });
-}
 
 const ok = (c, m) => console.log(`${c ? '✓' : '✗'} ${m}`);
 let failed = 0;
@@ -36,6 +36,8 @@ function assert(cond, msg) {
 }
 
 async function main() {
+  console.log('· 启动应用上下文（造数据与清理用）…');
+  const app = await bootApp();
   const c = db();
   await c.connect();
   const openid = `p2_exchange_${Date.now()}`;
@@ -54,13 +56,8 @@ async function main() {
 
   try {
     const cost = 500;
-    // 只给刚好 1 件的积分（营销积分只能后台发放，这里直接建钱包等价于后台发放）
-    await c.query(
-      `insert into wallet (user_id, game_coin, marketing_point)
-       values ($1, 0, $2)
-       on conflict (user_id) do update set marketing_point = $2`,
-      [userId, cost],
-    );
+    // 只给刚好 1 件的积分（营销积分只能后台发放，这里等价于后台发放）
+    await setAsset(app, userId, MARKETING_POINT, cost);
 
     // ---- A. 并发下单（不同 bizId）
     const results = await Promise.all(
@@ -82,11 +79,7 @@ async function main() {
     }, {});
     console.log(`\n[A] 并发 ${CONCURRENCY} 单，状态分布：`, statuses);
 
-    const w1 = await c.query(
-      `select marketing_point from wallet where user_id=$1`,
-      [userId],
-    );
-    const balance = Number(w1.rows[0].marketing_point);
+    const balance = await balanceOf(app, userId, MARKETING_POINT);
     const o1 = await c.query(
       `select count(*)::int n from redeem_order where user_id=$1`,
       [userId],
@@ -99,10 +92,7 @@ async function main() {
     if (rejected) console.log('    被拒示例：', rejected.status, rejected.body);
 
     // ---- B. 同 bizId 重复提交
-    await c.query(`update wallet set marketing_point=$2 where user_id=$1`, [
-      userId,
-      cost,
-    ]);
+    await setAsset(app, userId, MARKETING_POINT, cost);
     const sameBiz = `p2-idem-${Date.now()}`;
     const first = await fetch(`${BASE}/exchange/redeem`, {
       method: 'POST',
@@ -116,10 +106,7 @@ async function main() {
       body: JSON.stringify({ exchangeKey: ITEM, bizId: sameBiz }),
     });
     const sj = await second.json();
-    const w2 = await c.query(
-      `select marketing_point from wallet where user_id=$1`,
-      [userId],
-    );
+    const balanceAfterIdem = await balanceOf(app, userId, MARKETING_POINT);
     const o2 = await c.query(
       `select count(*)::int n from redeem_order where user_id=$1 and biz_id=$2`,
       [userId, sameBiz],
@@ -127,8 +114,8 @@ async function main() {
     console.log(`\n[B] 同 bizId 两次：${first.status} / ${second.status}`);
     assert(o2.rows[0].n === 1, `同 bizId 只落 1 单（实际 ${o2.rows[0].n}）`);
     assert(
-      Number(w2.rows[0].marketing_point) === 0,
-      `只扣 1 次（余额 ${w2.rows[0].marketing_point}，期望 0）`,
+      balanceAfterIdem === 0,
+      `只扣 1 次（余额 ${balanceAfterIdem}，期望 0）`,
     );
     assert(
       fj?.order?.id && sj?.order?.id && fj.order.id === sj.order.id,
@@ -137,10 +124,7 @@ async function main() {
 
     // ---- C. 不限量项（stock=null、perUserLimit=null）：积分足够就该一直兑得动
     const many = 5;
-    await c.query(`update wallet set marketing_point=$2 where user_id=$1`, [
-      userId,
-      cost * many,
-    ]);
+    await setAsset(app, userId, MARKETING_POINT, cost * many);
     for (let i = 0; i < many; i++) {
       await fetch(`${BASE}/exchange/redeem`, {
         method: 'POST',
@@ -160,34 +144,33 @@ async function main() {
         `\n    限量项的库存与限购见 scripts/p2-verify-stock.js`,
     );
 
-    // ---- 流水与余额一致性
-    const recon = await c.query(
-      `select coalesce(sum(delta),0)::bigint s from ledger where user_id=$1 and pool='marketing'`,
+    // ---- 每笔兑换都留了分录
+    //
+    // 只数扣费分录（reason='exchange'）：造数据用的发放/扣减也会留分录，
+    // 混在一起数就得不到「成功兑换了几笔」这个量。
+    const spends = await c.query(
+      `select count(*)::int n
+         from asset_entry e
+         join asset_txn t on t.id = e.txn_id
+         join account a on a.id = e.account_id
+        where a.user_id = $1 and t.reason = 'exchange'`,
       [userId],
+    );
+    const expected = 1 + 1 + many;
+    assert(
+      spends.rows[0].n === expected,
+      `每笔成功兑换都留了分录（实际 ${spends.rows[0].n} 条，期望 ${expected}）`,
     );
     console.log(
-      `\n[对账] ledger 求和 = ${recon.rows[0].s}（注：本脚本用 SQL 直接改过余额，故此值不等于钱包余额，仅用于确认每单都留了流水）`,
-    );
-    const ledgerCount = await c.query(
-      `select count(*)::int n from ledger where user_id=$1`,
-      [userId],
-    );
-    assert(
-      ledgerCount.rows[0].n === 1 + 1 + many,
-      `每笔成功兑换都留了流水（实际 ${ledgerCount.rows[0].n} 条，期望 ${1 + 1 + many}）`,
+      `\n[对账] 该玩家分录合计 ${await entryCount(c, userId)} 条` +
+        `（含造数据用的发放/扣减；余额、批次、分录三层由记账入口保证一致）`,
     );
   } finally {
-    await c.query(`delete from redeem_order where user_id=$1`, [userId]);
-    await c.query(`delete from ledger where user_id=$1`, [userId]);
-    await c.query(`delete from wallet where user_id=$1`, [userId]);
-    await c.query(`delete from "user" where id=$1`, [userId]);
-    // 幂等键有 24h TTL，但共用开发环境，顺手清掉免得干扰排查
-    const redis = new Redis(process.env.REDIS_URL);
-    const keys = await redis.keys(`idem:${userId}:*`);
-    if (keys.length) await redis.del(...keys);
-    await redis.quit();
-    console.log(`\n已清理临时用户 ${userId}（含 ${keys.length} 个幂等键）`);
+    await cleanupUser(c, userId);
+    const keys = await clearIdemKeys(userId);
+    console.log(`\n已清理临时用户 ${userId}（含 ${keys} 个幂等键）`);
     await c.end();
+    await app.close();
   }
   console.log(failed ? `\n有 ${failed} 项不符合预期` : '\n全部符合预期');
   process.exit(failed ? 1 : 0);

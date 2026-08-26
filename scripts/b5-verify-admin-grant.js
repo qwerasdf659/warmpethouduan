@@ -10,19 +10,13 @@
  * 用法：npm run build && node scripts/b5-verify-admin-grant.js
  */
 const P = '/home/devbox/project/node_modules/';
-require(P + 'dotenv').config({ path: '/home/devbox/project/.env' });
-const { Client } = require(P + 'pg');
 const { NestFactory } = require(P + '@nestjs/core');
-
-function db() {
-  return new Client({
-    host: process.env.DB_HOST,
-    port: Number(process.env.DB_PORT),
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-  });
-}
+const {
+  MARKETING_POINT,
+  db,
+  setAsset,
+  cleanupUser,
+} = require('./_verify-fixture');
 
 let failures = 0;
 function check(name, ok, extra = '') {
@@ -81,7 +75,9 @@ async function main() {
     check('背景（bg 槽）可补发', bg.qty === 1 && bg.granted === 1);
 
     // ------------------------------------------------- B. 下架物品仍可补发
-    await c.query(`update item_def set enabled = false where key = 'acc_cap'`);
+    await c.query(
+      `update asset_def set enabled = false where code = 'acc_cap'`,
+    );
     let downOk = true;
     try {
       await players.grantItem(userId, { bizId: 'b5-g4', itemKey: 'acc_cap' });
@@ -89,7 +85,9 @@ async function main() {
       downOk = false;
       console.log('   下架补发报错：', e.message);
     } finally {
-      await c.query(`update item_def set enabled = true where key = 'acc_cap'`);
+      await c.query(
+        `update asset_def set enabled = true where code = 'acc_cap'`,
+      );
     }
     check('已下架物品也能补发（限定款场景）', downOk);
 
@@ -150,12 +148,9 @@ async function main() {
         afterRemark.updated_at.getTime() > shipped.updated_at.getTime(),
     );
 
-    // 取消要走退款，cost 必须非零（economy 不接受 0 变动）
-    await c.query(
-      `insert into wallet (user_id, game_coin, marketing_point) values ($1,0,0)
-       on conflict (user_id) do update set marketing_point = 0`,
-      [userId],
-    );
+    // 取消要走退款，cost 必须非零（记账入口不接受 0 变动）。
+    // 余额归零走真实记账入口，不裸改 asset_balance。
+    await setAsset(app, userId, MARKETING_POINT, 0);
     const cancelId = (
       await c.query(
         `insert into redeem_order
@@ -179,10 +174,7 @@ async function main() {
     failures++;
     console.log('✗ 脚本异常中断：', e.message);
   } finally {
-    for (const t of ['redeem_order', 'item_owned', 'ledger', 'wallet']) {
-      await c.query(`delete from ${t} where user_id = $1`, [userId]);
-    }
-    await c.query(`delete from "user" where id = $1`, [userId]);
+    await cleanupUser(c, userId);
     await c.end();
     await app.close();
     console.log(failures ? `\n${failures} 项未通过` : '\n全部通过');

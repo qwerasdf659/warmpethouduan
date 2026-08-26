@@ -7,6 +7,8 @@ export async function listLedger(params: {
   pageSize: number;
   userId?: string;
   pool?: 'game' | 'marketing';
+  /** 按具体资产筛（`asset_def.code`）。与 pool 同时给时本项胜出 */
+  assetCode?: string;
   reason?: string;
 }): Promise<Paged<LedgerEntry>> {
   return request('/admin/wallet/ledger', { method: 'GET', params });
@@ -18,9 +20,25 @@ export async function getPlayerWallet(
   return request(`/admin/wallet/players/${id}`, { method: 'GET' });
 }
 
-/** 立即对账：校验 wallet == sum(ledger.delta)，只读不写。 */
+/** 立即对账：逐条校验账本 11 项不变量，只读不写。 */
 export async function runReconcile(): Promise<ReconcileReport> {
   return request('/admin/wallet/reconcile', { method: 'GET' });
+}
+
+/**
+ * 冲正一张凭证（争议处理 / 盗号追回）。
+ *
+ * 这是唯一的账务修复手段：按原凭证生成反向分录，原凭证一字不改。
+ * 刻意没有「重算余额」之类的工具 —— 那会忽略冻结与批次分桶，把账改得更错。
+ */
+export async function reverseTxn(
+  txnId: string,
+  payload: { reason: string },
+): Promise<{ txnId: string; reversedFrom: string }> {
+  return request(`/admin/wallet/txns/${txnId}/reverse`, {
+    method: 'POST',
+    data: { bizId: newBizId(), ...payload },
+  });
 }
 
 /**

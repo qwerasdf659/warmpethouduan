@@ -9,13 +9,17 @@
  * 用法：node scripts/p2-verify-stock.js   （需先 npm run build）
  */
 const P = '/home/devbox/project/node_modules/';
-require(P + 'dotenv').config({ path: '/home/devbox/project/.env' });
-const { Client } = require(P + 'pg');
 const Redis = require(P + 'ioredis');
+const {
+  MARKETING_POINT,
+  db,
+  bootApp,
+  setAsset,
+  balanceOf,
+  cleanupUser,
+} = require('./_verify-fixture');
 
 const dist = '/home/devbox/project/dist/';
-const { NestFactory } = require(P + '@nestjs/core');
-const { AppModule } = require(dist + 'app.module');
 const { ExchangeService } = require(dist + 'exchange/exchange.service');
 const { AdminExchangeService } = require(
   dist + 'admin/ops/admin-exchange.service',
@@ -24,23 +28,11 @@ const { GameConfigService } = require(dist + 'config/game-config.service');
 
 const KEY = 'plush_toy';
 
-function db() {
-  return new Client({
-    host: process.env.DB_HOST,
-    port: +process.env.DB_PORT,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-  });
-}
-
 async function main() {
   const pg = db();
   await pg.connect();
   const redis = new Redis(process.env.REDIS_URL);
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    logger: ['error'],
-  });
+  const app = await bootApp();
   const exchange = app.get(ExchangeService);
   const adminExchange = app.get(AdminExchangeService);
   const config = app.get(GameConfigService);
@@ -68,10 +60,8 @@ async function main() {
       )
     ).rows[0].id;
     users.push(id);
-    await pg.query(
-      `INSERT INTO wallet (user_id, game_coin, marketing_point) VALUES ($1, 0, $2)`,
-      [id, points],
-    );
+    // 走真实记账入口：余额是 asset_lot 的聚合缓存，裸 INSERT 会让三层不一致
+    await setAsset(app, id, MARKETING_POINT, points);
     const addr = (
       await pg.query(
         `INSERT INTO user_address (user_id, receiver, phone, region, detail, is_default)
@@ -82,10 +72,7 @@ async function main() {
     return { id, addr };
   }
 
-  const points = (userId) =>
-    pg
-      .query(`SELECT marketing_point FROM wallet WHERE user_id = $1`, [userId])
-      .then((r) => Number(r.rows[0].marketing_point));
+  const points = (userId) => balanceOf(app, userId, MARKETING_POINT);
 
   try {
     // ---------------------------------------------------------------- [A][B][C]
@@ -165,16 +152,14 @@ async function main() {
       [JSON.stringify(origItems)],
     );
     for (const id of users) {
-      for (const t of ['redeem_order', 'user_address', 'ledger', 'wallet']) {
-        await pg.query(`DELETE FROM ${t} WHERE user_id = $1`, [id]);
-      }
-      await pg.query(`DELETE FROM "user" WHERE id = $1`, [id]);
+      await cleanupUser(pg, id);
       const keys = await redis.keys(`*${id}*`);
       if (keys.length) await redis.del(...keys);
     }
     console.log(`\n已清理临时用户 ${users.join(', ')}，配置已还原`);
     await pg.end();
     await redis.quit();
+    await app.close();
     process.exit(0);
   }
 }

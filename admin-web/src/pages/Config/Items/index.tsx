@@ -23,6 +23,7 @@ const typeText: Record<string, string> = {
   skin: '皮肤',
   accessory: '配饰',
   furniture: '家具',
+  consumable: '消耗品',
 };
 
 export default function ItemsPage() {
@@ -31,8 +32,7 @@ export default function ItemsPage() {
   const canWrite = access.canWriteConfig;
 
   const columns: ProColumns<ItemDefView>[] = [
-    { title: 'ID', dataIndex: 'id', width: 70, hideInSearch: true },
-    { title: 'key', dataIndex: 'key', copyable: true },
+    { title: 'code', dataIndex: 'code', copyable: true },
     {
       title: '类型',
       dataIndex: 'type',
@@ -42,8 +42,9 @@ export default function ItemsPage() {
         skin: { text: '皮肤' },
         accessory: { text: '配饰' },
         furniture: { text: '家具' },
+        consumable: { text: '消耗品' },
       },
-      render: (_, r) => <Tag>{typeText[r.type] ?? r.type}</Tag>,
+      render: (_, r) => <Tag>{typeText[r.type ?? ''] ?? r.type ?? '-'}</Tag>,
     },
     { title: '名称', dataIndex: 'name', hideInSearch: true },
     {
@@ -62,6 +63,27 @@ export default function ItemsPage() {
     },
     { title: '舒适度', dataIndex: 'comfort', width: 80, hideInSearch: true },
     {
+      // 三个合规开关只读展示。它们的取值组合由数据库 CHECK 约束把死，
+      // 后台改不了 —— 放开需要显式迁移 + 在架构文档追加决策记录。
+      title: '合规',
+      width: 150,
+      hideInSearch: true,
+      render: (_, r) => (
+        <>
+          {r.tradable ? <Tag color="blue">可交易</Tag> : null}
+          {r.redeemable ? <Tag color="gold">可兑实物</Tag> : null}
+          {r.gachaOutput ? <Tag color="purple">扭蛋产出</Tag> : null}
+        </>
+      ),
+    },
+    {
+      title: '限量',
+      width: 100,
+      hideInSearch: true,
+      render: (_, r) =>
+        r.mintLimit === null ? '-' : `${r.mintedCount}/${r.mintLimit}`,
+    },
+    {
       title: '上架',
       dataIndex: 'enabled',
       width: 80,
@@ -79,11 +101,11 @@ export default function ItemsPage() {
         return [
           <ItemForm
             key="edit"
-            title={`编辑物品 · ${record.key}`}
+            title={`编辑物品 · ${record.code}`}
             trigger={<a>编辑</a>}
             initialValues={record}
             onSubmit={async (v) => {
-              await updateItem(record.id, v);
+              await updateItem(record.code, v);
               message.success('已保存');
               tableRef.current?.reload();
             }}
@@ -91,9 +113,9 @@ export default function ItemsPage() {
           />,
           <Popconfirm
             key="del"
-            title="确认删除该物品定义？"
+            title="确认删除该资产定义？已有流水或持有记录的资产不能删，请改为下架。"
             onConfirm={async () => {
-              await deleteItem(record.id);
+              await deleteItem(record.code);
               message.success('已删除');
               tableRef.current?.reload();
             }}
@@ -126,7 +148,7 @@ export default function ItemsPage() {
       }
     >
       <ProTable<ItemDefView>
-        rowKey="id"
+        rowKey="code"
         actionRef={tableRef}
         columns={columns}
         search={{ labelWidth: 'auto' }}
@@ -150,7 +172,7 @@ function ItemForm({
   title: string;
   trigger: React.ReactElement;
   initialValues?: Partial<ItemDefView>;
-  onSubmit: (v: Partial<ItemDefView>) => Promise<void>;
+  onSubmit: (v: Partial<ItemDefView> & { key?: string }) => Promise<void>;
   editing?: boolean;
 }) {
   return (
@@ -167,17 +189,28 @@ function ItemForm({
         return true;
       }}
     >
+      {/*
+        新建时字段名是 `key`（后端 CreateItemDefDto 用它当 code）；
+        编辑时 code 不可改 —— 它是主键，且历史分录都按它引用资产。
+      */}
       {!editing ? (
-        <ProFormText name="key" label="key" rules={[{ required: true }]} />
+        <ProFormText
+          name="key"
+          label="code"
+          tooltip="资产唯一标识，如 skin_tiger。创建后不可修改"
+          rules={[{ required: true }]}
+        />
       ) : null}
       {!editing ? (
         <ProFormSelect
           name="type"
           label="类型"
+          tooltip="皮肤/配饰是唯一物品（可编号、按件交易），家具/消耗品按数量"
           options={[
             { label: '皮肤', value: 'skin' },
             { label: '配饰', value: 'accessory' },
             { label: '家具', value: 'furniture' },
+            { label: '消耗品', value: 'consumable' },
           ]}
           rules={[{ required: true }]}
         />
@@ -204,6 +237,14 @@ function ItemForm({
         rules={[{ required: true }]}
       />
       <ProFormDigit name="comfort" label="舒适度(家具)" min={0} />
+      <ProFormDigit name="gridW" label="占格宽(家具)" min={1} />
+      <ProFormDigit name="gridH" label="占格高(家具)" min={1} />
+      <ProFormDigit
+        name="mintLimit"
+        label="限量总量"
+        min={1}
+        tooltip="仅皮肤/配饰有效。留空为不限量。已售出后只能上调，不能下调"
+      />
       <ProFormDigit name="sortOrder" label="排序" />
       <ProFormSwitch name="enabled" label="上架" />
     </ModalForm>

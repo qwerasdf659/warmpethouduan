@@ -2,7 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { LockService } from '../common/lock/lock.service';
 import { GameConfigService } from '../config/game-config.service';
 import { EconomyService } from '../economy/economy.service';
-import { ItemDef } from '../entities/item-def.entity';
+import type { AssetView, ItemType } from '../ledger/asset-catalog.service';
 import type { PetStateView } from '../pet/pet-math';
 import { PetService } from '../pet/pet.service';
 import { ConsumableService } from './consumable.service';
@@ -17,16 +17,27 @@ interface ItemsStub {
   consumeOwned: jest.Mock;
 }
 
-function defOf(key: string, type: ItemDef['type'], price = 60): ItemDef {
+function defOf(code: string, itemType: ItemType, price = 60): AssetView {
   return {
-    id: `def-${key}`,
-    key,
-    type,
-    name: key,
+    code,
+    kind:
+      itemType === 'skin' || itemType === 'accessory' ? 'unique' : 'stackable',
+    itemType,
+    name: code,
+    slot: null,
     price,
-    pool: 'game',
+    priceAsset: 'game_coin',
+    comfort: 0,
+    gridW: 1,
+    gridH: 1,
+    tradable: true,
+    redeemable: false,
+    mintLimit: null,
+    mintedCount: 0,
+    enabled: true,
     sortOrder: 1,
-  } as ItemDef;
+    meta: {},
+  };
 }
 
 const TABLE: ConsumableTable = {
@@ -54,15 +65,20 @@ describe('ConsumableService', () => {
       getDefByKey: jest.fn((key: string) =>
         Promise.resolve(defOf(key, 'consumable')),
       ),
-      ownedMap: jest.fn(() =>
-        Promise.resolve(new Map([['def-cons_snack', 3]])),
-      ),
+      // 新模型下持有量按 assetCode 索引，不再是 item_def 的自增 id
+      ownedMap: jest.fn(() => Promise.resolve(new Map([['cons_snack', 3]]))),
       buy: jest.fn(() =>
         Promise.resolve({
           itemKey: 'cons_snack',
           qty: 4,
-          wallet: { gameCoin: 900, marketingPoint: 0 },
+          wallet: {
+            gameCoin: 900,
+            marketingPoint: 0,
+            gameCoinFrozen: 0,
+            marketingPointFrozen: 0,
+          },
           duplicated: false,
+          serial: null,
         }),
       ),
       consumeOwned: jest.fn(() => Promise.resolve(2)),
@@ -77,7 +93,12 @@ describe('ConsumableService', () => {
     };
     economy = {
       getWallet: jest.fn(() =>
-        Promise.resolve({ gameCoin: 1000, marketingPoint: 0 }),
+        Promise.resolve({
+          gameCoin: 1000,
+          marketingPoint: 0,
+          gameCoinFrozen: 0,
+          marketingPointFrozen: 0,
+        }),
       ),
     };
 
@@ -148,11 +169,12 @@ describe('ConsumableService', () => {
 
   describe('use', () => {
     it('先扣道具再施加效果，并返回剩余份数', async () => {
-      const res = await svc.use('u1', 'cons_snack');
+      const res = await svc.use('u1', 'cons_snack', 'b1');
 
       expect(items.consumeOwned).toHaveBeenCalledWith(
         'u1',
-        'def-cons_snack',
+        'cons_snack',
+        'b1',
         1,
       );
       expect(pet.applyConsumable).toHaveBeenCalledWith(
@@ -168,17 +190,22 @@ describe('ConsumableService', () => {
       });
     });
 
-    it('持有量不足时报错，且不施加任何效果', async () => {
-      items.consumeOwned.mockResolvedValue(null);
+    /**
+     * 扣减改由账本的条件 UPDATE 拦住并抛异常（整个事务回滚），
+     * 不再返回 null 让调用方自己判 —— 那个 null 曾因 `rowsOf` 用错而变成 NaN，
+     * 调用方判 `=== null` 放行，等于不限量消耗。
+     */
+    it('持有量不足时异常向上抛，且不施加任何效果', async () => {
+      items.consumeOwned.mockRejectedValue(new BadRequestException('余额不足'));
 
-      await expect(svc.use('u1', 'cons_snack')).rejects.toBeInstanceOf(
+      await expect(svc.use('u1', 'cons_snack', 'b1')).rejects.toBeInstanceOf(
         BadRequestException,
       );
       expect(pet.applyConsumable).not.toHaveBeenCalled();
     });
 
     it('效果没配置时**先拒绝再扣道具**，不能扣掉道具什么都不发生', async () => {
-      await expect(svc.use('u1', 'cons_broken')).rejects.toBeInstanceOf(
+      await expect(svc.use('u1', 'cons_broken', 'b1')).rejects.toBeInstanceOf(
         BadRequestException,
       );
       expect(items.consumeOwned).not.toHaveBeenCalled();
@@ -187,7 +214,7 @@ describe('ConsumableService', () => {
 
     it('配置里完全没有这一项时同样拒绝', async () => {
       items.getDefByKey.mockResolvedValue(defOf('cons_ghost', 'consumable'));
-      await expect(svc.use('u1', 'cons_ghost')).rejects.toBeInstanceOf(
+      await expect(svc.use('u1', 'cons_ghost', 'b1')).rejects.toBeInstanceOf(
         BadRequestException,
       );
       expect(items.consumeOwned).not.toHaveBeenCalled();
@@ -195,13 +222,13 @@ describe('ConsumableService', () => {
 
     it('非消耗品不能使用', async () => {
       items.getDefByKey.mockResolvedValue(defOf('furn_rug', 'furniture'));
-      await expect(svc.use('u1', 'furn_rug')).rejects.toBeInstanceOf(
+      await expect(svc.use('u1', 'furn_rug', 'b1')).rejects.toBeInstanceOf(
         NotFoundException,
       );
     });
 
     it('多宠时把 petId 透传下去', async () => {
-      await svc.use('u1', 'cons_cake', 'pet-9');
+      await svc.use('u1', 'cons_cake', 'b1', 'pet-9');
       expect(pet.applyConsumable).toHaveBeenCalledWith(
         'u1',
         { hunger: 20, mood: 25, exp: 30 },
@@ -210,8 +237,23 @@ describe('ConsumableService', () => {
     });
 
     it('全程只抢一次 pet 锁（Redis 锁不可重入，抢两次就是自死锁）', async () => {
-      await svc.use('u1', 'cons_snack');
+      await svc.use('u1', 'cons_snack', 'b1');
       expect(lockCalls).toEqual(['pet:u1']);
+    });
+
+    /**
+     * `bizId` 必须一路传到扣减：它是持久幂等的载体。旧实现里
+     * `UseConsumableDto.bizId` 存在但控制器没往下传，于是扣减只被
+     * Redis 24h 窗口覆盖，隔日重试会真的再扣一份。
+     */
+    it('bizId 透传到扣减，保证重复提交是回放而不是再扣一份', async () => {
+      await svc.use('u1', 'cons_snack', 'client-uuid-1');
+      expect(items.consumeOwned).toHaveBeenCalledWith(
+        'u1',
+        'cons_snack',
+        'client-uuid-1',
+        1,
+      );
     });
   });
 });

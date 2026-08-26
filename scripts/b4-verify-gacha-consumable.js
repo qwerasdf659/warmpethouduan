@@ -15,22 +15,19 @@
  * 用法：node scripts/b4-verify-gacha-consumable.js
  */
 const P = '/home/devbox/project/node_modules/';
-require(P + 'dotenv').config({ path: '/home/devbox/project/.env' });
-const { Client } = require(P + 'pg');
 const jwt = require(P + 'jsonwebtoken');
 const Redis = require(P + 'ioredis');
+const {
+  GAME_COIN,
+  db,
+  bootApp,
+  setAsset,
+  balanceOf,
+  ownedQty,
+  cleanupUser,
+} = require('./_verify-fixture');
 
 const BASE = 'http://127.0.0.1:8080';
-
-function db() {
-  return new Client({
-    host: process.env.DB_HOST,
-    port: Number(process.env.DB_PORT),
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-  });
-}
 
 let failed = 0;
 function assert(cond, msg) {
@@ -39,6 +36,9 @@ function assert(cond, msg) {
 }
 
 async function main() {
+  // 断言打真实 HTTP（跑在 PM2 常驻进程上），但造数据与清理要走应用上下文：
+  // 余额必须经真实记账入口生成，理由见 `_verify-fixture.js`
+  const app = await bootApp();
   const c = db();
   await c.connect();
   const redis = new Redis(process.env.REDIS_URL);
@@ -64,11 +64,7 @@ async function main() {
     });
 
   try {
-    await c.query(
-      `insert into wallet (user_id, game_coin, marketing_point) values ($1, 60000, 0)
-       on conflict (user_id) do update set game_coin = 60000`,
-      [userId],
-    );
+    await setAsset(app, userId, GAME_COIN, 60000);
     await post('/pet/create', {
       bizId: `b4-pet-${Date.now()}`,
       species: 'cat',
@@ -113,10 +109,7 @@ async function main() {
     );
 
     // ---------------------------------------------------------------- C
-    const walletAfterTen = await c.query(
-      `select game_coin from wallet where user_id = $1`,
-      [userId],
-    );
+    const coinAfterTen = await balanceOf(app, userId, GAME_COIN);
     const replay = await (
       await post('/gacha/draw', {
         poolKey: pool.key,
@@ -129,14 +122,8 @@ async function main() {
         JSON.stringify(ten.prizes.map((p) => p.entryKey)),
       '同 bizId 重放返回完全相同的产出（没有重掷）',
     );
-    const walletAfterReplay = await c.query(
-      `select game_coin from wallet where user_id = $1`,
-      [userId],
-    );
-    assert(
-      walletAfterTen.rows[0].game_coin === walletAfterReplay.rows[0].game_coin,
-      '重放不二次扣费',
-    );
+    const coinAfterReplay = await balanceOf(app, userId, GAME_COIN);
+    assert(coinAfterTen === coinAfterReplay, '重放不二次扣费');
     const draws = await c.query(
       `select count(*) n, bool_and(delivered) d from gacha_draw where user_id = $1 and biz_id = $2`,
       [userId, bizTen],
@@ -148,27 +135,24 @@ async function main() {
     assert(draws.rows[0].d === true, '产出已标记 delivered');
 
     // ---------------------------------------------------------------- D
-    const itemPrizes = ten.prizes.filter((p) => p.kind === 'item');
-    if (itemPrizes.length > 0) {
-      const owned = await c.query(
-        `select d.key, o.qty from item_owned o join item_def d on d.id = o.item_def_id
-         where o.user_id = $1`,
-        [userId],
-      );
-      const ownedKeys = new Set(owned.rows.map((r) => r.key));
-      const missing = itemPrizes
-        .map((p) => p.itemKey)
-        .filter((k) => !ownedKeys.has(k));
-      assert(
-        missing.length === 0,
-        `抽到的 ${itemPrizes.length} 件物品全部进了背包${
-          missing.length ? `（缺 ${missing.join(',')}）` : ''
-        }`,
-      );
-    } else {
-      // 十连全是币档是可能的（物品档权重低），此时这项无从验证
-      console.log('· 本次十连未出物品档，D 项跳过（重跑可复验）');
+    //
+    // D1 之后扭蛋只产出道具与消耗品（不再有币档），所以十连**必然**有产出，
+    // 不存在「本次没出物品档、这项跳过」的情形了。
+    const wantedCodes = [...new Set(ten.prizes.map((p) => p.itemKey))];
+    const missing = [];
+    for (const code of wantedCodes) {
+      if ((await ownedQty(app, userId, code)) <= 0) missing.push(code);
     }
+    assert(
+      wantedCodes.length > 0,
+      `十连有产出（${wantedCodes.length} 种，D1 之后不再产币）`,
+    );
+    assert(
+      missing.length === 0,
+      `抽到的 ${wantedCodes.length} 种产出全部进了背包${
+        missing.length ? `（缺 ${missing.join(',')}）` : ''
+      }`,
+    );
 
     // ---------------------------------------------------------------- E
     const shop = await (await get('/items/consumables')).json();
@@ -238,20 +222,7 @@ async function main() {
     failed++;
     console.error('✗ 脚本异常：', err && err.message ? err.message : err);
   } finally {
-    for (const t of [
-      'gacha_draw',
-      'gacha_state',
-      'redeem_order',
-      'item_owned',
-      'pet_equip',
-      'home_stat',
-      'ledger',
-      'wallet',
-      'pet',
-    ]) {
-      await c.query(`delete from ${t} where user_id = $1`, [userId]);
-    }
-    await c.query(`delete from "user" where id = $1`, [userId]);
+    await cleanupUser(c, userId);
     const keys = [
       ...(await redis.keys(`*:${userId}:*`)),
       ...(await redis.keys(`*:${userId}`)),
@@ -259,6 +230,7 @@ async function main() {
     if (keys.length) await redis.del(...keys);
     await redis.quit();
     await c.end();
+    void app.close();
     console.log(failed === 0 ? '\n全部通过' : `\n失败 ${failed} 项`);
     // 显式退出：ioredis / pg 的句柄偶尔会让进程挂住不退
     process.exit(failed === 0 ? 0 : 1);

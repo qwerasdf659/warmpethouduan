@@ -13,7 +13,7 @@ export type BidStatus = 'active' | 'outbid' | 'won' | 'cancelled';
  * 竞价出价（期 5）。出价即冻结买家资金（`freezeTxnId` 指向那张 `freeze` 凭证），
  * 被超越时解冻 —— 否则会出现「同一笔钱同时出价十个挂单，中标后余额不够」。
  */
-@Entity('market_bid')
+@Entity({ name: 'market_bid', synchronize: false })
 @Check('ck_bid_status', `"status" IN ('active','outbid','won','cancelled')`)
 @Check('ck_bid_price', `"price" > 0`)
 @Index('idx_bid_listing', ['listingId', 'price', 'createdAt'])

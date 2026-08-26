@@ -5,15 +5,25 @@
  *   npm run wipe:pre-launch -- --execute       # 真删（需手输确认短语）
  *   npm run wipe:pre-launch -- --execute --keep 1,2   # 保留指定 userId
  *
- * 保留：admin_*（后台账号权限）、game_config / item_def 等配置表、migrations。
- * 清除：user 及所有沿外键挂在它下面的表。
+ * 保留：admin_*（后台账号权限）、game_config / asset_def 等配置表、migrations。
+ * 清除：user 及所有沿外键挂在它下面的表，外加清空后变成孤儿的凭证头（`asset_txn`）。
+ *
+ * ⚠ 系统账户（`FEE`/`ESCROW`）本身保留（由启动播种保证存在），但它们名下的余额与
+ * 托管实例会随账户表一起被 sweep 清掉 —— 那些是交易产生的手续费与托管物，
+ * 玩家都删了它们也无处归属。
  *
  * 三道闸：生产环境直接拒绝、默认 dry-run、真删前必须手输确认短语。
  * 清档不可逆且没有回滚入口，任何一道都不该省。
  */
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
-import { makeClient, printCounts, refuseInProduction, sweep } from './_db';
+import {
+  makeClient,
+  printCounts,
+  refuseInProduction,
+  sweep,
+  sweepOrphans,
+} from './_db';
 
 const CONFIRM_PHRASE = '确认清档';
 
@@ -51,7 +61,7 @@ async function main(): Promise<void> {
     console.log(`\n上线前清档（DB=${process.env.DB_NAME}）`);
     console.log(`  待删玩家：${rows.length} 个`);
     if (keepIds.length) console.log(`  保留玩家：userId ${keepIds.join(', ')}`);
-    console.log('  不动的表：admin_*、game_config、item_def、migrations\n');
+    console.log('  不动的表：admin_*、game_config、asset_def、migrations\n');
 
     if (rows.length === 0) {
       console.log('没有需要清除的玩家。\n');
@@ -65,6 +75,10 @@ async function main(): Promise<void> {
     const preview = await sweep(client, 'user', 'id', ids, {
       dryRun: true,
       counts: new Map(),
+    });
+    await sweepOrphans(client, 'asset_txn', {
+      dryRun: true,
+      counts: preview,
     });
     await client.query('ROLLBACK');
 
@@ -95,6 +109,8 @@ async function main(): Promise<void> {
       dryRun: false,
       counts: new Map(),
     });
+    // 凭证头只有在分录与实例都删完之后才变成孤儿，顺序不能提前
+    await sweepOrphans(client, 'asset_txn', { dryRun: false, counts });
     await client.query('COMMIT');
 
     console.log('\n已清除：');

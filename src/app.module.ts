@@ -20,7 +20,9 @@ import { GameConfigModule } from './config/game-config.module';
 import { WechatModule } from './wechat/wechat.module';
 import { AuthModule } from './auth/auth.module';
 import { PetModule } from './pet/pet.module';
+import { LedgerModule } from './ledger/ledger.module';
 import { EconomyModule } from './economy/economy.module';
+import { MarketModule } from './market/market.module';
 import { DailyModule } from './daily/daily.module';
 import { RaceModule } from './race/race.module';
 import { ItemsModule } from './items/items.module';
@@ -114,7 +116,9 @@ import { AdminModule } from './admin/admin.module';
     WechatModule,
     AuthModule,
     PetModule,
+    LedgerModule,
     EconomyModule,
+    MarketModule,
     DailyModule,
     RaceModule,
     ItemsModule,

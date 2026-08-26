@@ -38,7 +38,7 @@ export interface AssetMeta {
  * 等表现层字段一律收进 `meta`——它们变化频繁且只有渲染层读，放进列会让这张表
  * 变成谁都要改的热点。
  */
-@Entity('asset_def')
+@Entity({ name: 'asset_def', synchronize: false })
 @Check('ck_asset_kind', `"kind" IN ('currency','stackable','unique')`)
 // 合规红线固化在库层，不靠文档和人记得住。放开需显式迁移 + 追加决策记录。
 @Check('ck_asset_no_trade_redeem', `NOT ("tradable" AND "redeemable")`)

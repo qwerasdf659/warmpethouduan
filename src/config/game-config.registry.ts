@@ -5,6 +5,7 @@ import { EXCHANGE_CONFIG } from '../exchange/exchange.config';
 import { GACHA_CONFIG } from '../gacha/gacha.config';
 import { HOME_CONFIG } from '../home/home.config';
 import { ITEMS_CONFIG } from '../items/items.config';
+import { MARKET_CONFIG } from '../market/market.config';
 import { PET_CONFIG } from '../pet/pet.config';
 import { PROMO_CONFIG } from '../promo/promo.config';
 import { RACE_CONFIG } from '../race/race.config';
@@ -27,6 +28,7 @@ export const CONFIG_REGISTRY = {
   ...GACHA_CONFIG,
   ...HOME_CONFIG,
   ...ITEMS_CONFIG,
+  ...MARKET_CONFIG,
   ...PROMO_CONFIG,
 };
 

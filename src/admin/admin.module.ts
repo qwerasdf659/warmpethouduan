@@ -9,16 +9,16 @@ import { AdminMenu } from '../entities/admin-menu.entity';
 import { AdminAuditLog } from '../entities/admin-audit-log.entity';
 import { User } from '../entities/user.entity';
 import { Pet } from '../entities/pet.entity';
-import { Wallet } from '../entities/wallet.entity';
-import { Ledger } from '../entities/ledger.entity';
 import { RedeemOrder } from '../entities/redeem-order.entity';
-import { ItemDef } from '../entities/item-def.entity';
+import { AssetDef } from '../entities/asset-def.entity';
 import { PromoCode } from '../entities/promo-code.entity';
 import { PromoRedemption } from '../entities/promo-redemption.entity';
 import { GameConfig } from '../entities/game-config.entity';
 import { PetModule } from '../pet/pet.module';
 import { EconomyModule } from '../economy/economy.module';
+import { LedgerModule } from '../ledger/ledger.module';
 import { ItemsModule } from '../items/items.module';
+import { MarketModule } from '../market/market.module';
 import { AdminPlayersService } from './ops/admin-players.service';
 import { AdminPlayersController } from './ops/admin-players.controller';
 import { AdminIdempotencyService } from './ops/admin-idempotency.service';
@@ -71,10 +71,8 @@ import { AdminBootstrapService } from './admin-bootstrap.service';
       AdminAuditLog,
       User,
       Pet,
-      Wallet,
-      Ledger,
       RedeemOrder,
-      ItemDef,
+      AssetDef,
       GameConfig,
       PromoCode,
       PromoRedemption,
@@ -83,6 +81,8 @@ import { AdminBootstrapService } from './admin-bootstrap.service';
     // 后台补发装扮/家具走 ItemsService.grant
     ItemsModule,
     EconomyModule,
+    LedgerModule,
+    MarketModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

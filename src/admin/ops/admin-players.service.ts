@@ -129,7 +129,14 @@ export class AdminPlayersService {
     return this.pet.adminAdjust(id, input);
   }
 
-  /** 补发装扮/家具/背景：委托 ItemsService.grant（玩家级锁内累加背包）。 */
+  /**
+   * 补发装扮/家具/背景：委托 `ItemsService.grant`。
+   *
+   * `bizId` 现在真正生效：发放落 `asset_txn.biz_id`，同一 bizId 重复提交是幂等回放。
+   * 重构前它只被 `IdempotencyInterceptor` 的 Redis 24h 窗口覆盖，隔日重发同一
+   * 工单会真的再补一件（这就是缺口 G1 —— 玩家投诉「我的皮肤没了」也查不出来，
+   * 因为发放根本没有流水）。
+   */
   async grantItem(
     id: string,
     dto: GrantItemDto,
@@ -139,6 +146,12 @@ export class AdminPlayersService {
       select: { id: true },
     });
     if (!u) throw new NotFoundException('玩家不存在');
-    return this.items.grant(id, dto.itemKey, dto.qty ?? 1);
+    return this.items.grant(
+      id,
+      dto.itemKey,
+      dto.qty ?? 1,
+      `admin:grant:${dto.bizId}:${id}`,
+      'compensation',
+    );
   }
 }

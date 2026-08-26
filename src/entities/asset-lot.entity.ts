@@ -26,7 +26,7 @@ import {
  * 批次级溯源；细分会让分录数量爆炸且对账复杂度翻倍。批次的分摊结果由本表自身状态
  * 承载，一致性由对账不变量 9 校验。
  */
-@Entity('asset_lot')
+@Entity({ name: 'asset_lot', synchronize: false })
 @Check('ck_lot_non_negative', `"remaining" >= 0 AND "frozen" >= 0`)
 @Check('ck_lot_within_issued', `"remaining" + "frozen" <= "issued_total"`)
 export class AssetLot {

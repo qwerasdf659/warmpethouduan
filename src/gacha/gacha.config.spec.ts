@@ -1,3 +1,4 @@
+import { SEED_ASSETS } from '../ledger/asset-seed';
 import {
   GACHA_CONFIG,
   GachaEntry,
@@ -12,10 +13,8 @@ const entry = (key: string, weight: number, rare = false): GachaEntry => ({
   key,
   name: key,
   weight,
-  kind: 'coin',
-  amount: 10,
-  itemKey: null,
-  qty: 0,
+  itemKey: 'cons_snack',
+  qty: 1,
   rare,
 });
 
@@ -68,6 +67,7 @@ describe('gacha.config', () => {
 
   describe('默认奖池', () => {
     const pools = GACHA_CONFIG['gacha.pools'].default;
+    const assetOf = (code: string) => SEED_ASSETS.find((a) => a.code === code);
 
     it('通过自身 schema 校验', () => {
       const { error } = GACHA_CONFIG['gacha.pools'].schema.validate(pools);
@@ -84,28 +84,57 @@ describe('gacha.config', () => {
       for (const p of pools) expect(p.costTen).toBeLessThan(p.cost * 10);
     });
 
+    /**
+     * D1 的核心约束。产出里出现货币会让 `game_coin` 同时需要 `tradable`
+     * （它是交易媒介）和 `gachaOutput`，而 `ck_asset_no_trade_gacha` 会在
+     * 播种时就把这份配置拒掉 —— 与其等到启动失败，不如在这里拦住。
+     */
+    it('产出里没有任何货币（D1：扭蛋不产币）', () => {
+      for (const p of pools) {
+        for (const e of p.entries) {
+          expect(assetOf(e.itemKey)?.kind).not.toBe('currency');
+        }
+      }
+      for (const p of pools) {
+        if (p.dupeItemKey) {
+          expect(assetOf(p.dupeItemKey)?.kind).not.toBe('currency');
+        }
+      }
+    });
+
+    /**
+     * 合规红线的另一半：扭蛋产出物必须不可交易，否则「投入货币 → 随机 →
+     * 产出可变现资产」这条链就通了，那是开箱模式。
+     */
+    it('所有产出物在资产表里都是不可交易的', () => {
+      for (const p of pools) {
+        for (const e of p.entries) {
+          const asset = assetOf(e.itemKey);
+          expect(asset).toBeDefined();
+          expect(asset?.tradable).toBe(false);
+          expect(asset?.gachaOutput).toBe(true);
+        }
+      }
+    });
+
     it('期望回收低于单抽成本，否则扭蛋从 sink 变成印钞机', () => {
       for (const p of pools) {
         const total = totalWeight(p.entries);
-        // 物品档按「重复折算币」估值取上界：最乐观情况下也不该回本
+        // 产出按**商店售价**估值取上界：最乐观情况下（每一件都当原价买来的用）
+        // 也不该回本
         const expected = p.entries.reduce((sum, e) => {
-          const value = e.kind === 'coin' ? e.amount : p.dupeCoin;
-          return sum + (value * e.weight) / total;
+          const price = assetOf(e.itemKey)?.meta?.price ?? 0;
+          return sum + (Number(price) * e.qty * e.weight) / total;
         }, 0);
         expect(expected).toBeLessThan(p.cost);
       }
     });
 
-    it('kind 与 amount/itemKey 自洽', () => {
+    it('每一档都指向真实存在的资产，且件数为正', () => {
       for (const p of pools) {
         for (const e of p.entries) {
-          if (e.kind === 'coin') {
-            expect(e.amount).toBeGreaterThan(0);
-            expect(e.itemKey).toBeNull();
-          } else {
-            expect(e.itemKey).toBeTruthy();
-            expect(e.qty).toBeGreaterThan(0);
-          }
+          expect(assetOf(e.itemKey)).toBeDefined();
+          expect(e.qty).toBeGreaterThan(0);
         }
       }
     });
@@ -129,7 +158,8 @@ describe('gacha.config', () => {
       cost: 100,
       costTen: 900,
       pity: 10,
-      dupeCoin: 50,
+      dupeItemKey: 'cons_snack',
+      dupeQty: 2,
     };
 
     it('拒绝空档位表', () => {
@@ -142,23 +172,24 @@ describe('gacha.config', () => {
       ).toBeDefined();
     });
 
-    it('拒绝 kind=item 但没给 itemKey', () => {
+    it('拒绝没有 itemKey 的档位', () => {
       expect(
-        validate([
-          {
-            ...base,
-            entries: [
-              { ...entry('a', 1), kind: 'item', itemKey: null, qty: 1 },
-            ],
-          },
-        ]),
+        validate([{ ...base, entries: [{ ...entry('a', 1), itemKey: null }] }]),
       ).toBeDefined();
     });
 
-    it('拒绝 kind=coin 但 amount=0', () => {
+    it('拒绝 qty=0（抽到了却什么都不给）', () => {
       expect(
-        validate([{ ...base, entries: [{ ...entry('a', 1), amount: 0 }] }]),
+        validate([{ ...base, entries: [{ ...entry('a', 1), qty: 0 }] }]),
       ).toBeDefined();
+    });
+
+    it('允许 dupeItemKey=null（不做重复补偿）', () => {
+      expect(
+        validate([
+          { ...base, dupeItemKey: null, dupeQty: 0, entries: [entry('a', 1)] },
+        ]),
+      ).toBeUndefined();
     });
 
     it('允许空数组（整体下架扭蛋）', () => {

@@ -29,7 +29,7 @@ export interface ExchangeItem {
   /** 每人限兑件数。`null` = 不限。同样按非取消订单计数。 */
   perUserLimit: number | null;
   /**
-   * 虚拟品的自动发放物品键（`item_def.key`）。`null` = 不自动发货。
+   * 虚拟品的自动发放资产 code（`asset_def.code`）。`null` = 不自动发货。
    *
    * 只对 `type='virtual'` 生效：填了就在下单时直接进背包、订单落 `shipped`，
    * 真正做到「即时到账」；不填则和实物一样留 `pending` 等运营处理

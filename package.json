@@ -17,13 +17,14 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "lint": "eslint src test scripts/dev --fix",
-    "lint:check": "eslint src test scripts/dev --max-warnings 0",
-    "verify": "npm run lint:check && tsc --noEmit && npm run verify:web && jest --silent && npm run test:e2e",
+    "lint": "eslint src test scripts/dev scripts/*.js --fix",
+    "lint:check": "eslint src test scripts/dev scripts/*.js --max-warnings 0",
+    "verify": "npm run lint:check && tsc --noEmit && npm run check:circular && npm run verify:web && jest --silent && npm run test:e2e",
     "verify:web": "pnpm --dir admin-web lint && pnpm --dir admin-web typecheck && pnpm --dir admin-web test",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
+    "check:circular": "madge --circular --extensions ts --ts-config tsconfig.json src",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json --runInBand --forceExit",
     "typeorm": "typeorm-ts-node-commonjs -d src/data-source.ts",
@@ -36,6 +37,7 @@
     "wipe:pre-launch": "npm run script -- scripts/dev/wipe-pre-launch.ts",
     "prepare": "husky",
     "audit": "npm run script -- scripts/dev/audit-state.ts",
+    "smoke:ledger": "npm run script -- scripts/dev/ledger-smoke.ts",
     "admin:passwd": "npm run script -- scripts/dev/admin-passwd.ts"
   },
   "lint-staged": {
@@ -89,6 +91,7 @@
     "jest": "^30.0.0",
     "jsonwebtoken": "^9.0.3",
     "lint-staged": "^16.4.0",
+    "madge": "^8.0.0",
     "prettier": "^3.4.2",
     "source-map-support": "^0.5.21",
     "supertest": "^7.0.0",
@@ -114,6 +117,14 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
+    "coverageThreshold": {
+      "global": {
+        "statements": 22,
+        "branches": 20,
+        "functions": 20,
+        "lines": 22
+      }
+    },
     "testEnvironment": "node"
   }
 }

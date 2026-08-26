@@ -7,8 +7,11 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 
-/** `listed`/`escrowed` 期间物品在 ESCROW 账户名下，玩家不可穿戴或摆放。 */
-export type InstanceState = 'held' | 'listed' | 'escrowed';
+/**
+ * `listed`/`escrowed` 期间物品在 ESCROW 账户名下，玩家不可穿戴或摆放。
+ * `burned` 是终态（系统回收后销毁），行保留以支撑历史流水回溯。
+ */
+export type InstanceState = 'held' | 'listed' | 'escrowed' | 'burned';
 
 /**
  * 唯一物品实例。皮肤 / 配饰 / 限定收藏品走这里，家具与消耗品走 `asset_balance`。
@@ -21,8 +24,8 @@ export type InstanceState = 'held' | 'listed' | 'escrowed';
  * 所以「物品凭空产生」结构性不可能。`ownerAccountId` 是从分录派生的缓存，
  * 由对账不变量 6 校验漂移。
  */
-@Entity('item_instance')
-@Check('ck_instance_state', `"state" IN ('held','listed','escrowed')`)
+@Entity({ name: 'item_instance', synchronize: false })
+@Check('ck_instance_state', `"state" IN ('held','listed','escrowed','burned')`)
 @Index('idx_instance_owner', ['ownerAccountId', 'assetCode'])
 export class ItemInstance {
   @PrimaryGeneratedColumn('increment', { type: 'bigint' })

@@ -9,17 +9,22 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 
-/** 一次抽取的产出。`kind='coin'` 时看 `amount`，`kind='item'` 时看 `itemKey`/`qty`。 */
+/**
+ * 一次抽取的产出。
+ *
+ * **只有物品，没有币**（决策 D1）：`game_coin` 是交易媒介因此必须 `tradable`，
+ * 而可交易 + 随机产出会被 `ck_asset_no_trade_gacha` 拦住 —— 那正是「投入→随机
+ * →可变现」的开箱模式。冲突的解法是让扭蛋只产出道具与消耗品。
+ */
 export interface GachaPrize {
   entryKey: string;
   name: string;
-  kind: 'coin' | 'item';
-  amount: number;
-  itemKey: string | null;
+  /** 产出的 `asset_def.code` */
+  itemKey: string;
   qty: number;
   /** true = 稀有档（触发保底计数重置），供前端做特效分级 */
   rare: boolean;
-  /** true = 重复的收藏品已折算成游戏币（见 GachaService） */
+  /** true = 抽到的是重复且不可交易的收藏品，已折算成补偿道具（见 GachaService） */
   converted: boolean;
 }
 

@@ -8,6 +8,11 @@ import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 import { REDIS_CLIENT } from '../../src/redis/redis.module';
 import { hashPassword } from '../../src/admin/utils/password.util';
+import { GameConfigService } from '../../src/config/game-config.service';
+import { InventoryService } from '../../src/ledger/inventory.service';
+import { LedgerService } from '../../src/ledger/ledger.service';
+import { RewardService } from '../../src/ledger/reward.service';
+import { GAME_COIN, MARKETING_POINT } from '../../src/ledger/ledger.types';
 
 /**
  * 连真库的 e2e 夹具。
@@ -21,6 +26,8 @@ export class E2eApp {
   private readonly userIds: string[] = [];
   private readonly adminIds: string[] = [];
   private readonly adminRoleCodes: string[] = [];
+  /** `fundWallet` 的幂等键序号，见该方法注释 */
+  private fundSeq = 0;
 
   private constructor(
     readonly app: INestApplication,
@@ -144,31 +151,107 @@ export class E2eApp {
     }
   }
 
-  /** 直接给钱包记账（等价于后台发放），用于准备「有钱」的初始状态。 */
+  /**
+   * 给玩家发放起始余额，用于准备「有钱」的初始状态。
+   *
+   * 走真实记账入口（`RewardService.grant`）而不是直接压 `asset_balance`：
+   * 新模型下余额是 `asset_lot` 的聚合缓存，直接改余额会让批次、分录、余额三层
+   * 立刻不一致 —— 而对账的不变量 2/3/9 正是校验这三层一致，于是 e2e 造的数据
+   * 会把对账用例自己弄挂。
+   */
   async fundWallet(
     userId: string,
     pools: { game?: number; marketing?: number },
   ): Promise<void> {
-    await this.db.query(
-      `INSERT INTO wallet (user_id, game_coin, marketing_point) VALUES ($1, $2, $3)
-       ON CONFLICT (user_id) DO UPDATE SET game_coin = $2, marketing_point = $3`,
-      [userId, pools.game ?? 0, pools.marketing ?? 0],
-    );
+    const rewards = [
+      { assetCode: GAME_COIN, count: pools.game ?? 0 },
+      { assetCode: MARKETING_POINT, count: pools.marketing ?? 0 },
+    ].filter((r) => r.count > 0);
+    if (rewards.length === 0) return;
+
+    await this.app.get(RewardService).grant(userId, rewards, {
+      reason: 'compensation',
+      // 每次调用一个新键：同一用例里可能连续加两次钱，共用键会命中幂等回放
+      bizKey: `e2e:fund:${userId}:${this.fundSeq++}`,
+      scope: 'sys',
+    });
   }
 
   async walletOf(
     userId: string,
   ): Promise<{ gameCoin: number; marketingPoint: number }> {
-    const rows = await this.db.query<
-      { game_coin: string; marketing_point: string }[]
-    >(`SELECT game_coin, marketing_point FROM wallet WHERE user_id = $1`, [
-      userId,
-    ]);
-    if (!rows.length) return { gameCoin: 0, marketingPoint: 0 };
+    const balances = await this.app.get(LedgerService).balances(userId);
     return {
-      gameCoin: Number(rows[0].game_coin),
-      marketingPoint: Number(rows[0].marketing_point),
+      gameCoin: balances[GAME_COIN]?.available ?? 0,
+      marketingPoint: balances[MARKETING_POINT]?.available ?? 0,
     };
+  }
+
+  /** 玩家持有的某个资产件数（唯一物品按实例数，可堆叠按可用余额）。 */
+  async ownedQty(userId: string, assetCode: string): Promise<number> {
+    return this.app.get(InventoryService).ownedQty(userId, assetCode);
+  }
+
+  /** 玩家持有的唯一物品实例。 */
+  async instancesOf(
+    userId: string,
+    assetCode?: string,
+  ): Promise<{ instanceId: string; serial: number | null; state: string }[]> {
+    return this.app.get(InventoryService).listInstances(userId, assetCode);
+  }
+
+  /**
+   * 临时覆盖若干配置项，跑完自动还原。
+   *
+   * 交易市场的分档开关默认全关（代码就位不等于可以开门做生意），所以市场用例
+   * 必须先打开它们。这是本夹具唯一允许改 `game_config` 的口子，且**保证还原**：
+   * 原本有值的改回原值，原本没有的删掉 —— 否则一次跑挂的 e2e 会把开发库的
+   * 市场开关永久留在打开状态。
+   */
+  async withConfig<T>(
+    overrides: Record<string, unknown>,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const keys = Object.keys(overrides);
+    const before = new Map<string, unknown>();
+    for (const key of keys) {
+      const rows = await this.db.query<{ value: unknown }[]>(
+        `SELECT value FROM game_config WHERE key = $1`,
+        [key],
+      );
+      before.set(key, rows.length ? rows[0].value : undefined);
+      await this.db.query(
+        `INSERT INTO game_config (key, description, value) VALUES ($1, $2, $3)
+         ON CONFLICT (key) DO UPDATE SET value = $3`,
+        [key, 'e2e 临时覆盖', JSON.stringify(overrides[key])],
+      );
+    }
+    this.app.get(GameConfigService).invalidate();
+
+    try {
+      return await fn();
+    } finally {
+      for (const key of keys) {
+        const original = before.get(key);
+        if (original === undefined) {
+          await this.db.query(`DELETE FROM game_config WHERE key = $1`, [key]);
+        } else {
+          await this.db.query(
+            `UPDATE game_config SET value = $2 WHERE key = $1`,
+            [key, JSON.stringify(original)],
+          );
+        }
+      }
+      this.app.get(GameConfigService).invalidate();
+    }
+  }
+
+  /** 把玩家的注册时间往前拨，用于绕过 R1 新号交易冷却。 */
+  async backdateRegistration(userId: string, days: number): Promise<void> {
+    await this.db.query(
+      `UPDATE "user" SET created_at = now() - ($2 || ' days')::interval WHERE id = $1`,
+      [userId, String(days)],
+    );
   }
 
   /**
@@ -198,7 +281,7 @@ export class E2eApp {
   /** 删掉本次跑出来的所有数据：先删子表，再删 user，最后清 Redis 上的用户级键。 */
   async teardown(): Promise<void> {
     for (const userId of this.userIds) {
-      // 顺序即外键顺序：所有表都直接引用 user，故只需保证 user 最后删。
+      // 顺序即外键顺序：这些表都直接引用 user，故只需保证 user 最后删。
       // 新增引用 user 的表必须登记到这里，否则删 user 会被外键拦住，
       // 整个 e2e 会从「跑完自清」退化成「往开发库里堆垃圾」。
       for (const table of [
@@ -210,17 +293,15 @@ export class E2eApp {
         'dex_claim',
         'home_layout',
         'pet_equip',
-        'item_owned',
         'race_record',
         'daily',
-        'ledger',
-        'wallet',
         'pet',
       ]) {
         await this.db.query(`DELETE FROM ${table} WHERE user_id = $1`, [
           userId,
         ]);
       }
+      await this.cleanupLedger(userId);
       await this.db.query(`DELETE FROM "user" WHERE id = $1`, [userId]);
 
       const keys = await this.redis.keys(`*:${userId}:*`);
@@ -229,6 +310,8 @@ export class E2eApp {
       if (all.length) await this.redis.del(...all);
     }
     this.userIds.length = 0;
+    await this.cleanupSystemAccounts();
+    await this.cleanupOrphanTxns();
 
     // 后台侧：审计日志不带外键但会一直堆着，一并按 admin_user_id 删掉
     for (const adminId of this.adminIds) {
@@ -255,5 +338,125 @@ export class E2eApp {
     await this.resetThrottle();
 
     await this.app.close();
+  }
+
+  /**
+   * 清掉某玩家的账本数据。
+   *
+   * 账本表**不直接引用 user**，而是经 `account` 中转，所以不能像其它表那样按
+   * `user_id` 一把删。顺序是外键的拓扑序：分录 → 实例 → 批次/余额 → 账户。
+   */
+  private async cleanupLedger(userId: string): Promise<void> {
+    const rows = await this.db.query<{ id: string }[]>(
+      `SELECT id FROM account WHERE user_id = $1`,
+      [userId],
+    );
+    const accountId = rows[0]?.id;
+    if (!accountId) return;
+
+    await this.db.query(
+      `DELETE FROM market_bid WHERE bidder_account_id = $1
+         OR listing_id IN (SELECT id FROM market_listing WHERE seller_account_id = $1)`,
+      [accountId],
+    );
+    await this.db.query(
+      `DELETE FROM market_listing WHERE seller_account_id = $1`,
+      [accountId],
+    );
+    await this.db.query(
+      `DELETE FROM item_instance_entry WHERE account_id = $1
+         OR instance_id IN (SELECT id FROM item_instance WHERE owner_account_id = $1)`,
+      [accountId],
+    );
+    await this.db.query(
+      `DELETE FROM item_instance WHERE owner_account_id = $1`,
+      [accountId],
+    );
+    for (const table of [
+      'asset_entry',
+      'asset_lot',
+      'asset_balance',
+      'trade_risk_daily',
+    ]) {
+      await this.db.query(`DELETE FROM ${table} WHERE account_id = $1`, [
+        accountId,
+      ]);
+    }
+    await this.db.query(`DELETE FROM account WHERE id = $1`, [accountId]);
+  }
+
+  /**
+   * 清掉 `FEE` / `ESCROW` 两个系统账户上的 e2e 残留。
+   *
+   * 这两个账户不属于任何玩家，因此不会被 `cleanupLedger` 扫到，但交易用例会往里
+   * 留东西：成交手续费进 `FEE`，而「挂单后没撤单」的用例会把实例留在 `ESCROW`
+   * 名下。不清的话每跑一次 e2e 就多积一批，`FEE` 的余额和 `ESCROW` 的持仓
+   * 会单调增长，最终让「全服总币量」这类看板统计失真。
+   *
+   * 系统账户本身**不删**：它们由启动播种保证存在，删了下次启动还要重建，
+   * 而 account id 变化会让缓存过的 id 失效。
+   */
+  private async cleanupSystemAccounts(): Promise<void> {
+    const rows = await this.db.query<{ id: string }[]>(
+      `SELECT id FROM account WHERE system_code IS NOT NULL`,
+    );
+    const ids = rows.map((r) => r.id);
+    if (ids.length === 0) return;
+
+    // 托管中的实例：挂单行已随卖家一起删掉，这些实例已无人认领
+    await this.db.query(
+      `DELETE FROM item_instance_entry
+        WHERE account_id = ANY($1::bigint[])
+           OR instance_id IN (
+                SELECT id FROM item_instance WHERE owner_account_id = ANY($1::bigint[]))`,
+      [ids],
+    );
+    await this.db.query(
+      `DELETE FROM item_instance WHERE owner_account_id = ANY($1::bigint[])`,
+      [ids],
+    );
+    for (const table of [
+      'asset_entry',
+      'asset_lot',
+      'asset_balance',
+      'trade_risk_daily',
+    ]) {
+      await this.db.query(
+        `DELETE FROM ${table} WHERE account_id = ANY($1::bigint[])`,
+        [ids],
+      );
+    }
+  }
+
+  /**
+   * 删掉不再被任何分录/实例/挂单引用的凭证头。
+   *
+   * 单独一步而不是随玩家删：一张 `transfer` 凭证同时属于买卖双方，
+   * 按玩家删会在只清掉其中一方时就把凭证删掉，另一方的分录随即变成孤儿。
+   * 等所有玩家都清完再扫一遍孤儿凭证，是唯一安全的顺序。
+   */
+  private async cleanupOrphanTxns(): Promise<void> {
+    /*
+     * 不按 biz_id 前缀筛。凭证头的 bizId 形如 `u{userId}:shop:buy:{uuid}`，
+     * 里面没有任何 e2e 标记可认；而「没有任何分录、实例、挂单、出价引用它，
+     * 也没有冲正指向它」的凭证头本身就不携带信息 —— 它只可能是刚才删分录时
+     * 留下的残骸。因此无条件删是安全的。
+     *
+     * reversal_of 是自引用，被引用的原凭证要等冲正凭证先删掉，故循环几轮。
+     */
+    for (let round = 0; round < 3; round += 1) {
+      const deleted = await this.db.query<{ id: string }[]>(
+        `DELETE FROM asset_txn t
+          WHERE NOT EXISTS (SELECT 1 FROM asset_entry e WHERE e.txn_id = t.id)
+            AND NOT EXISTS (SELECT 1 FROM item_instance i WHERE i.minted_txn_id = t.id)
+            AND NOT EXISTS (SELECT 1 FROM item_instance_entry ie WHERE ie.txn_id = t.id)
+            AND NOT EXISTS (SELECT 1 FROM market_listing l
+                             WHERE l.created_txn_id = t.id OR l.settled_txn_id = t.id)
+            AND NOT EXISTS (SELECT 1 FROM market_bid b WHERE b.freeze_txn_id = t.id)
+            AND NOT EXISTS (SELECT 1 FROM asset_txn r WHERE r.reversal_of = t.id)
+          RETURNING t.id`,
+      );
+      if (deleted.length === 0) break;
+    }
   }
 }

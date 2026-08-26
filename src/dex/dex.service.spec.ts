@@ -70,7 +70,7 @@ function petOf(level: number): PetStateView {
 }
 
 /**
- * 图鉴的收集类进度：按「拥有多少种」推进，且必须真的读 item_owned——
+ * 图鉴的收集类进度：按「拥有多少种」推进，且必须真的读玩家持有量——
  * 此前买再多皮肤都不点亮任何图鉴格，与规格不符。
  */
 describe('DexService 收集类图鉴', () => {

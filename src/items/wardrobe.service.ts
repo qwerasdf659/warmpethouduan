@@ -4,14 +4,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { LockService } from '../common/lock/lock.service';
-import { ItemDef } from '../entities/item-def.entity';
 import { Pet } from '../entities/pet.entity';
 import { PetEquip } from '../entities/pet-equip.entity';
+import type { ItemType } from '../ledger/asset-catalog.service';
+import { InventoryService } from '../ledger/inventory.service';
 import { ItemsService } from './items.service';
 
-const WARDROBE_TYPES = ['skin', 'accessory'];
+const WARDROBE_TYPES: ItemType[] = ['skin', 'accessory'];
 
 export interface WardrobeItemView {
   key: string;
@@ -22,6 +23,10 @@ export interface WardrobeItemView {
   pool: string;
   owned: boolean;
   equipped: boolean;
+  /** 可交易（前端据此显示挂单入口） */
+  tradable: boolean;
+  /** 我持有的这件的限量编号（多件时取编号最小的一件） */
+  serial: number | null;
 }
 
 export interface WardrobeView {
@@ -39,31 +44,42 @@ export class WardrobeService {
     private readonly equips: Repository<PetEquip>,
     @InjectRepository(Pet)
     private readonly pets: Repository<Pet>,
-    @InjectRepository(ItemDef)
-    private readonly defs: Repository<ItemDef>,
     private readonly items: ItemsService,
+    private readonly inventory: InventoryService,
     private readonly lock: LockService,
   ) {}
 
   async list(userId: string, petId?: string): Promise<WardrobeView> {
     const pet = await this.resolvePet(userId, petId);
     const defs = await this.items.listDefsByType(WARDROBE_TYPES);
-    const ownedIds = await this.items.ownedMap(userId);
+    const owned = await this.items.ownedMap(userId);
     const equipped = pet ? await this.equippedMap(pet.id) : {};
     const equippedKeys = new Set(Object.values(equipped));
+
+    // 换装类是 unique 资产，持有形态是实例；编号要展示给玩家看（「第 7/100 件」）
+    const instances = await this.inventory.listInstances(userId);
+    const serialOf = new Map<string, number | null>();
+    for (const inst of instances) {
+      if (!serialOf.has(inst.assetCode)) {
+        serialOf.set(inst.assetCode, inst.serial);
+      }
+    }
 
     return {
       petId: pet?.id ?? null,
       items: defs.map((d) => ({
-        key: d.key,
-        type: d.type,
+        key: d.code,
+        type: d.itemType ?? '',
         name: d.name,
         slot: d.slot,
         price: d.price,
-        pool: d.pool,
-        // price=0 视为默认拥有（如原色皮肤）
-        owned: d.price === 0 || ownedIds.has(d.id),
-        equipped: equippedKeys.has(d.key),
+        pool: d.priceAsset === 'marketing_point' ? 'marketing' : 'game',
+        // price=0 视为默认拥有（如原色皮肤、暖阳小屋背景）：它们不铸造实例，
+        // 因此不能靠「有没有实例」判断，否则新玩家会发现自己连原色都没有
+        owned: d.price === 0 || (owned.get(d.code) ?? 0) > 0,
+        equipped: equippedKeys.has(d.code),
+        tradable: d.tradable,
+        serial: serialOf.get(d.code) ?? null,
       })),
       equipped,
     };
@@ -82,7 +98,7 @@ export class WardrobeService {
     const def = await this.items.getDefByKey(itemKey);
     if (!def || !def.enabled) throw new NotFoundException('物品不存在或已下架');
     const slot = def.slot;
-    if (!WARDROBE_TYPES.includes(def.type) || !slot) {
+    if (!def.itemType || !WARDROBE_TYPES.includes(def.itemType) || !slot) {
       throw new BadRequestException('该物品不可穿戴');
     }
 
@@ -90,16 +106,17 @@ export class WardrobeService {
       const pet = await this.resolvePet(userId, petId);
       if (!pet) throw new NotFoundException('没有可穿戴的宠物');
 
-      const ownedIds = await this.items.ownedMap(userId);
-      if (def.price > 0 && !ownedIds.has(def.id)) {
-        throw new BadRequestException('尚未拥有该物品');
+      const owned = await this.items.ownedMap(userId);
+      if (def.price > 0 && (owned.get(def.code) ?? 0) <= 0) {
+        // 挂单中的实例归 ESCROW 持有，不计入 ownedMap ——「边穿边卖」因此不可能
+        throw new BadRequestException('尚未拥有该物品（或该物品正在挂单中）');
       }
 
       const existing = await this.equips.findOne({
         where: { petId: pet.id, slot },
       });
       if (existing) {
-        existing.itemDefId = def.id;
+        existing.assetCode = def.code;
         await this.equips.save(existing);
       } else {
         await this.equips.save(
@@ -107,7 +124,7 @@ export class WardrobeService {
             userId,
             petId: pet.id,
             slot,
-            itemDefId: def.id,
+            assetCode: def.code,
           }),
         );
       }
@@ -146,19 +163,11 @@ export class WardrobeService {
     );
   }
 
-  /** 返回 pet 当前穿戴 slot -> itemKey。 */
+  /** 返回 pet 当前穿戴 slot -> assetCode。 */
   private async equippedMap(petId: string): Promise<Record<string, string>> {
     const rows = await this.equips.find({ where: { petId } });
-    if (rows.length === 0) return {};
-    const defs = await this.defs.find({
-      where: { id: In(rows.map((r) => r.itemDefId)) },
-    });
-    const idToKey = new Map(defs.map((d) => [d.id, d.key]));
     const out: Record<string, string> = {};
-    for (const r of rows) {
-      const key = idToKey.get(r.itemDefId);
-      if (key) out[r.slot] = key;
-    }
+    for (const r of rows) out[r.slot] = r.assetCode;
     return out;
   }
 }

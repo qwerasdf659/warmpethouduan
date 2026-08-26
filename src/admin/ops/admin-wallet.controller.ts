@@ -21,6 +21,7 @@ import {
   GrantWalletBulkDto,
   GrantWalletDto,
   QueryLedgerDto,
+  ReverseTxnDto,
 } from './dto/wallet-admin.dto';
 
 /**
@@ -53,13 +54,28 @@ export class AdminWalletController {
   }
 
   /**
-   * 立即对账：校验 `wallet == sum(ledger.delta)`。与每日定时作业同一份逻辑，
+   * 立即对账：逐条校验账本的 11 项不变量。与每日定时作业同一份逻辑，
    * 只读不写 —— 发现不平只报告，不自动纠账（自动纠账会把证据一起改掉）。
    */
   @Get('reconcile')
   @RequirePermissions('wallet:read')
   reconcile() {
     return this.reconcileService.run();
+  }
+
+  /**
+   * 冲正凭证（R7：争议处理 / 盗号追回）。
+   *
+   * 权限归 `wallet:write`：冲正会真实改变余额，与人工发币同一风险等级。
+   * 走 `@Audit` 落痕 —— 资金修复操作必须能回答「谁在什么时候改了什么」。
+   */
+  @Post('txns/:txnId/reverse')
+  @RequirePermissions('wallet:write')
+  @Idempotent()
+  @UseInterceptors(IdempotencyInterceptor)
+  @Audit('冲正凭证', 'asset_txn')
+  reverseTxn(@Param('txnId') txnId: string, @Body() dto: ReverseTxnDto) {
+    return this.service.reverseTxn(txnId, dto);
   }
 
   @Post('players/:id/grant')

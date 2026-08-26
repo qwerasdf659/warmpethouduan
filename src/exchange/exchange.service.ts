@@ -161,7 +161,7 @@ export class ExchangeService {
           }
         }
 
-        const fulfilled = await this.autoFulfill(userId, item);
+        const fulfilled = await this.autoFulfill(userId, item, bizId);
         const order = await this.orders.save(
           this.orders.create({
             userId,
@@ -189,23 +189,32 @@ export class ExchangeService {
    * 只有 `type='virtual'` 且配了 `grantItemKey` 才自动发；实物与需要线下核销的
    * 权益（如门店代金券）仍留 `pending` 等运营处理。
    *
-   * 发放失败**不回滚订单**，而是落 pending 交给后台补发：物品发放没有可回放的
-   * 幂等键，这里若为了「原子性」去退款，会和 `redeem` 自身的幂等语义打架
-   * （玩家重试同一 bizId 会命中已存在的订单、拿不到货也拿不回钱）。
-   * 留 pending 的代价是运营多点一次发货，但不会出现钱货两空。
+   * 发放失败**不回滚订单**，而是落 pending 交给后台补发。留 pending 的代价是运营
+   * 多点一次发货，但不会出现钱货两空。
+   *
+   * 发放的幂等键由订单 `bizId` 派生，因此重复调用不会多发一份 —— 这一点在重构前
+   * 做不到（物品发放当时没有持久幂等键，只有 Redis 24h 窗口）。
    */
   private async autoFulfill(
     userId: string,
     item: ExchangeItem,
+    bizId: string,
   ): Promise<boolean> {
     if (item.type !== 'virtual' || !item.grantItemKey || item.grantQty <= 0) {
       return false;
     }
     try {
-      // 必须走 grantUnlocked：本方法在 `pet:{userId}` 锁内，Redis 锁不可重入。
-      // 用 `grant` 会抢不到自己已持有的锁并抛 409，被下面的 catch 吞掉，
-      // 于是「即时到账」永远静默降级成人工发货 —— 这个 bug 真实发生过。
-      await this.items.grantUnlocked(userId, item.grantItemKey, item.grantQty);
+      // 记账路径不再抢 Redis 锁，因此在 `pet:{userId}` 锁内直接调用是安全的。
+      // 重构前这里必须用一个专门的 `grantUnlocked` 变体，否则持锁者会抢不到自己
+      // 已持有的锁、抛 409、被下面的 catch 吞掉 —— 于是「即时到账」静默降级成
+      // 人工发货。那个 bug 真实发生过，现在它的成因（双入口）已被消除。
+      await this.items.grant(
+        userId,
+        item.grantItemKey,
+        item.grantQty,
+        `redeem:${bizId}`,
+        'exchange',
+      );
       return true;
     } catch (err) {
       this.logger.warn(

@@ -14,7 +14,7 @@ import {
  *
  * 只承载 `currency` 与 `stackable`；`unique` 类资产的持有关系在 `item_instance`。
  */
-@Entity('asset_balance')
+@Entity({ name: 'asset_balance', synchronize: false })
 @Check('ck_balance_non_negative', `"available" >= 0 AND "frozen" >= 0`)
 export class AssetBalance {
   @PrimaryColumn({ name: 'account_id', type: 'bigint' })

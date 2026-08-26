@@ -15,7 +15,7 @@ export type ListingStatus = 'listed' | 'sold' | 'cancelled' | 'expired';
  * 市场挂单。挂单期间标的转入 `ESCROW` 账户（唯一物品）或转为 `frozen`（可堆叠），
  * 因此「挂着卖同时又送人」不可能。
  */
-@Entity('market_listing')
+@Entity({ name: 'market_listing', synchronize: false })
 @Check('ck_listing_mode', `"mode" IN ('fixed','auction')`)
 @Check(
   'ck_listing_status',

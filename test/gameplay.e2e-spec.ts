@@ -83,12 +83,16 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       expect(fedPet.hunger).toBeGreaterThan(pet.hunger);
       expect(after.gameCoin).toBeGreaterThan(before.gameCoin);
 
-      // 币的每一次变动都必须有流水，否则对账无从下手
-      const ledger = await e2e.db.query<{ n: string }[]>(
-        `SELECT count(*) n FROM ledger WHERE user_id = $1 AND pool = 'game'`,
+      // 币的每一次变动都必须有分录，否则对账无从下手。
+      // 分录经 account 挂到玩家身上（账本表不直接引用 user）。
+      const entries = await e2e.db.query<{ n: string }[]>(
+        `SELECT count(*) n
+           FROM asset_entry e
+           JOIN account a ON a.id = e.account_id
+          WHERE a.user_id = $1 AND e.asset_code = 'game_coin'`,
         [p.userId],
       );
-      expect(Number(ledger[0].n)).toBeGreaterThan(0);
+      expect(Number(entries[0].n)).toBeGreaterThan(0);
     });
 
     it('同一 bizId 重复喂食：幂等回放，不重复加币', async () => {
@@ -316,7 +320,7 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       const battleBefore = (before.body as TracksRes).battle;
       expect(battleBefore).not.toBeNull();
 
-      // 买一件配饰并穿上（小皇冠 800 币，item_def 里 comfort=0）
+      // 买一件配饰并穿上（配饰不贡献舒适度，asset_def 的 meta.comfort=0）
       await request(server)
         .post('/items/wardrobe/buy')
         .set(auth)

@@ -9,7 +9,7 @@ import { Column, Entity, PrimaryColumn } from 'typeorm';
  * 它承担的正是 `issue`/`burn` 单边凭证放弃的那部分口径 —— 发行与销毁不守恒，
  * 所以「本月发了多少币」不能靠分录求和推出，必须单独物化。
  */
-@Entity('asset_daily_stat')
+@Entity({ name: 'asset_daily_stat', synchronize: false })
 export class AssetDailyStat {
   @PrimaryColumn({ name: 'stat_day', type: 'date' })
   statDay: string;

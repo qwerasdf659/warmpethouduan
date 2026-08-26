@@ -53,7 +53,12 @@ async function childForeignKeys(
        JOIN pg_attribute att  ON att.attrelid  = con.conrelid  AND att.attnum  = ck.attnum
        JOIN pg_attribute patt ON patt.attrelid = con.confrelid AND patt.attnum = pk.attnum
       WHERE con.contype = 'f'
-        AND con.confrelid = $1::regclass`,
+        AND con.confrelid = $1::regclass
+        -- 只要父表上的约束。分区表（asset_entry）会在每个分区上再挂一份继承来的
+        -- 约束（conparentid <> 0），不过滤的话每多一个月分区就多一条「子表」，
+        -- 于是清理报告里会列出 20 多个 asset_entry_2026_xx 且逐个跑一遍 DELETE。
+        -- 删父表会自动路由到所有分区，无需逐个处理。
+        AND con.conparentid = 0`,
     [parentTable],
   );
 
@@ -125,6 +130,57 @@ export async function sweep(
       ).rowCount ?? 0);
 
   if (affected > 0) counts.set(table, (counts.get(table) ?? 0) + affected);
+  return counts;
+}
+
+/**
+ * 删掉 `table` 里已经没有任何表引用的行（孤儿）。
+ *
+ * `sweep` 只能自上而下走：从 `user` 出发沿外键找子表。但 `asset_txn`（凭证头）
+ * 是**父表** —— 它被分录、实例、挂单、出价引用，自己不引用任何人，所以 sweep
+ * 永远到不了它。清完玩家之后那些凭证头会全部变成孤儿留在库里，
+ * 于是 `wipe:pre-launch` 声称的「有配置、无玩家」并不成立。
+ *
+ * 判据同样从 `pg_constraint` 反查，不写死引用方清单：新增一张引用 `asset_txn`
+ * 的表会自动被纳入判断，不必回来改这里。
+ *
+ * `rounds` 用于自引用外键（`asset_txn.reversal_of`）：被冲正的原凭证要等冲正凭证
+ * 先删掉才会变成孤儿，一轮删不干净。
+ */
+export async function sweepOrphans(
+  client: Client,
+  table: string,
+  opts: { dryRun: boolean; counts: SweepCounts; rounds?: number },
+): Promise<SweepCounts> {
+  const { dryRun, counts, rounds = 3 } = opts;
+  const referrers = await childForeignKeys(client, table);
+  if (referrers.length === 0) return counts;
+
+  const notReferenced = referrers
+    .map(
+      (fk) =>
+        `NOT EXISTS (SELECT 1 FROM "${fk.childTable}" c
+                      WHERE c."${fk.childColumn}" = t."${fk.parentColumn}")`,
+    )
+    .join(' AND ');
+
+  for (let round = 0; round < rounds; round += 1) {
+    if (dryRun) {
+      // 预演只数一轮：多轮预演会重复统计同一批行（没真删，下一轮还在）
+      const { rows } = await client.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM "${table}" t WHERE ${notReferenced}`,
+      );
+      const n = Number(rows[0].n);
+      if (n > 0) counts.set(table, (counts.get(table) ?? 0) + n);
+      return counts;
+    }
+
+    const affected =
+      (await client.query(`DELETE FROM "${table}" t WHERE ${notReferenced}`))
+        .rowCount ?? 0;
+    if (affected === 0) break;
+    counts.set(table, (counts.get(table) ?? 0) + affected);
+  }
   return counts;
 }
 

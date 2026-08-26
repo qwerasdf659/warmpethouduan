@@ -3,10 +3,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EconomyService, WalletView } from '../../economy/economy.service';
 import { User } from '../../entities/user.entity';
+import { LedgerService } from '../../ledger/ledger.service';
 import {
   GrantWalletBulkDto,
   GrantWalletDto,
   QueryLedgerDto,
+  ReverseTxnDto,
 } from './dto/wallet-admin.dto';
 
 /**
@@ -17,6 +19,7 @@ import {
 export class AdminWalletService {
   constructor(
     private readonly economy: EconomyService,
+    private readonly ledger: LedgerService,
     @InjectRepository(User)
     private readonly users: Repository<User>,
   ) {}
@@ -28,6 +31,7 @@ export class AdminWalletService {
       pageSize: q.pageSize,
       userId: q.userId,
       pool: q.pool,
+      assetCode: q.assetCode,
       reason: q.reason,
     });
   }
@@ -96,6 +100,24 @@ export class AdminWalletService {
     }
 
     return { total: targets.length, succeeded, failed };
+  }
+
+  /**
+   * 冲正一张凭证（R7）。
+   *
+   * 适用场景：交易纠纷、盗号追回、配错数值的批量发放。冲正会按原凭证生成**反向
+   * 分录**并写 `reversal_of`，原凭证一字不改 —— 这样「当初发生了什么」与
+   * 「后来怎么修的」都留在账上。
+   *
+   * 两条限制由 `LedgerService.reverse` 保证：同一凭证不可重复冲正；
+   * 铸造凭证不可冲正（那会让唯一物品凭空消失，破坏实例守恒）。
+   */
+  async reverseTxn(
+    txnId: string,
+    dto: ReverseTxnDto,
+  ): Promise<{ txnId: string; reversedFrom: string }> {
+    const result = await this.ledger.reverse(txnId, dto.bizId, 'reversal');
+    return { txnId: result.txnId, reversedFrom: txnId };
   }
 
   private async assertUserExists(userId: string): Promise<void> {

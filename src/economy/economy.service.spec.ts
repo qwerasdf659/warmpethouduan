@@ -1,44 +1,40 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-} from '@nestjs/common';
-import { DataSource, EntityManager, Repository } from 'typeorm';
-import { Ledger } from '../entities/ledger.entity';
-import { Wallet } from '../entities/wallet.entity';
-import { ApplyResult, EconomyService } from './economy.service';
+import { BadRequestException } from '@nestjs/common';
+import { LedgerService } from '../ledger/ledger.service';
+import { GAME_COIN, MARKETING_POINT } from '../ledger/ledger.types';
+import { EconomyService } from './economy.service';
 
 /**
- * EconomyService 是经济域唯一记账入口，核心保证：
- *  - 入参校验（delta 非零安全整数、bizId 必填）
- *  - 记账原子性 + 余额非负
- *  - (userId,bizId,pool) 幂等回放（依赖唯一索引 23505）
- * 这里用假 DataSource 覆盖上述路径，不触碰真实 Postgres。
+ * `EconomyService` 重构后是**货币视角的门面**，本身不含记账逻辑。
+ * 因此这里测的是两件翻译工作是否正确：
+ *  - 池 ↔ 资产 code（双池在新模型里是两个 `asset_def` 行，不是两列）
+ *  - 余额 map ↔ `WalletView`（含新增的 frozen 口径）
+ * 以及它是否把正确形状的凭证交给了 `LedgerService`。
+ *
+ * 真正的记账语义（分录平衡、批次分摊、幂等回放）在 `ledger.service.spec.ts` 测。
  */
 describe('EconomyService', () => {
   let service: EconomyService;
-  let wallets: jest.Mocked<Pick<Repository<Wallet>, 'findOne'>>;
-  let ledgers: jest.Mocked<
-    Pick<Repository<Ledger>, 'findOne' | 'findAndCount'>
+  let ledger: jest.Mocked<
+    Pick<LedgerService, 'post' | 'balances' | 'history' | 'globalHistory'>
   >;
-  let dataSource: {
-    manager: Partial<EntityManager>;
-    transaction: jest.Mock;
-  };
 
   beforeEach(() => {
-    wallets = { findOne: jest.fn() };
-    ledgers = { findOne: jest.fn(), findAndCount: jest.fn() };
-    dataSource = {
-      manager: { query: jest.fn().mockResolvedValue([]) },
-      transaction: jest.fn(),
+    ledger = {
+      post: jest.fn().mockResolvedValue({
+        txnId: 'T1',
+        bizId: 'u1:b1',
+        balances: { [GAME_COIN]: { available: 110, frozen: 0 } },
+        minted: [],
+        duplicated: false,
+      }),
+      balances: jest.fn().mockResolvedValue({
+        [GAME_COIN]: { available: 110, frozen: 40 },
+        [MARKETING_POINT]: { available: 7, frozen: 0 },
+      }),
+      history: jest.fn().mockResolvedValue({ list: [], total: 0 }),
+      globalHistory: jest.fn().mockResolvedValue({ list: [], total: 0 }),
     };
-
-    service = new EconomyService(
-      dataSource as unknown as DataSource,
-      wallets as unknown as Repository<Wallet>,
-      ledgers as unknown as Repository<Ledger>,
-    );
+    service = new EconomyService(ledger as unknown as LedgerService);
   });
 
   describe('入参校验', () => {
@@ -52,55 +48,48 @@ describe('EconomyService', () => {
           reason: 'interact',
         }),
       ).rejects.toBeInstanceOf(BadRequestException);
+      expect(ledger.post).not.toHaveBeenCalled();
     });
 
-    it('拒绝空 bizId', async () => {
+    it('拒绝未知积分池', async () => {
       await expect(
         service.apply({
           userId: 'u1',
-          pool: 'game',
+          // 绕过类型检查模拟脏调用：池名来自配置，配错了不该静默记到某个默认资产上
+          pool: 'gold' as 'game',
           delta: 10,
-          bizId: '',
+          bizId: 'b1',
           reason: 'interact',
         }),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 
+  describe('钱包读取', () => {
+    it('把余额 map 摊成 WalletView，含 frozen 口径', async () => {
+      const w = await service.getWallet('u1');
+      expect(w).toEqual({
+        gameCoin: 110,
+        marketingPoint: 7,
+        gameCoinFrozen: 40,
+        marketingPointFrozen: 0,
+      });
+    });
+
+    it('没有任何余额行时按 0 返回，不报错', async () => {
+      ledger.balances.mockResolvedValue({});
+      expect(await service.getWallet('u404')).toEqual({
+        gameCoin: 0,
+        marketingPoint: 0,
+        gameCoinFrozen: 0,
+        marketingPointFrozen: 0,
+      });
+    });
+  });
+
   describe('apply 记账', () => {
-    /** 按 SQL 片段分派的假 query，绕开 EntityManager['query'] 的泛型签名。 */
-    function fakeQuery(
-      handler: (sql: string) => unknown,
-    ): EntityManager['query'] {
-      return jest.fn((sql: string) =>
-        Promise.resolve(handler(sql)),
-      ) as unknown as EntityManager['query'];
-    }
-
-    /** 模拟一次成功事务：UPDATE 返回新余额，INSERT ledger 返回主键。 */
-    function mockSuccessTx() {
-      const m: Partial<EntityManager> = {
-        query: fakeQuery((sql) => {
-          if (sql.includes('INSERT INTO "wallet"')) return [];
-          if (sql.includes('UPDATE "wallet"')) {
-            // UPDATE ... RETURNING → [rows[], affected]
-            return [[{ game_coin: '110', marketing_point: '0' }], 1];
-          }
-          if (sql.includes('INSERT INTO "ledger"')) {
-            return [{ id: 'L1', created_at: new Date('2026-01-01T00:00:00Z') }];
-          }
-          return [];
-        }),
-      };
-      dataSource.transaction.mockImplementation(
-        (cb: (m: EntityManager) => unknown) => cb(m as EntityManager),
-      );
-      return m;
-    }
-
-    it('发放成功：返回新余额与账目，duplicated=false', async () => {
-      mockSuccessTx();
-      const res = await service.apply({
+    it('game 池映射到 game_coin，正数 delta 落 issue 凭证', async () => {
+      await service.apply({
         userId: 'u1',
         pool: 'game',
         delta: 10,
@@ -108,135 +97,97 @@ describe('EconomyService', () => {
         reason: 'interact',
       });
 
-      expect(res.duplicated).toBe(false);
-      expect(res.wallet.gameCoin).toBe(110);
-      expect(res.entry).toMatchObject({
-        id: 'L1',
-        pool: 'game',
-        delta: 10,
-        balanceAfter: 110,
-        bizId: 'b1',
-        reason: 'interact',
-      });
-    });
-
-    /** UPDATE 影响 0 行；user 表按传入状态应答，用于区分两种失败成因。 */
-    function mockZeroRowTx(userStatus: 'active' | 'banned') {
-      const m: Partial<EntityManager> = {
-        query: fakeQuery((sql) => {
-          if (sql.includes('UPDATE "wallet"')) return [[], 0];
-          if (sql.includes('FROM "user"')) {
-            return [{ status: userStatus, banned_reason: '违规刷币' }];
-          }
-          return [];
-        }),
-      };
-      dataSource.transaction.mockImplementation(
-        (cb: (m: EntityManager) => unknown) => cb(m as EntityManager),
-      );
-      return m;
-    }
-
-    it('余额不足：UPDATE 影响 0 行 → BadRequestException', async () => {
-      mockZeroRowTx('active');
-
-      await expect(
-        service.apply({
-          userId: 'u1',
-          pool: 'game',
-          delta: -999,
-          bizId: 'b1',
-          reason: 'purchase',
-        }),
-      ).rejects.toBeInstanceOf(BadRequestException);
-    });
-
-    it('封禁账号：0 行成因是封禁而非余额 → ForbiddenException', async () => {
-      mockZeroRowTx('banned');
-
-      await expect(
-        service.apply({
-          userId: 'u1',
-          pool: 'game',
-          delta: 10,
-          bizId: 'b1',
-          reason: 'race',
-        }),
-      ).rejects.toBeInstanceOf(ForbiddenException);
-    });
-
-    it('后台补偿豁免封禁：SQL 不带 user 状态条件', async () => {
-      const m = mockSuccessTx();
-
-      await service.adminGrant({
-        userId: 'u1',
-        pool: 'game',
-        delta: 10,
-        bizId: 'g1',
-      });
-
-      const calls = (m.query as unknown as jest.Mock).mock.calls as unknown[][];
-      const updateSql = calls
-        .map((c) => String(c[0]))
-        .find((sql) => sql.includes('UPDATE "wallet"'));
-      expect(updateSql).toBeDefined();
-      expect(updateSql).not.toContain('status');
-    });
-
-    it('重复提交(23505)：走幂等回放，duplicated=true 且不二次变动', async () => {
-      dataSource.transaction.mockRejectedValue({ code: '23505' });
-      ledgers.findOne.mockResolvedValue({
-        id: 'L1',
-        pool: 'game',
-        delta: 10,
-        balanceAfter: 110,
-        bizId: 'b1',
-        reason: 'interact',
-        refId: null,
-        userId: 'u1',
-        createdAt: new Date('2026-01-01T00:00:00Z'),
-      } as unknown as Ledger);
-      wallets.findOne.mockResolvedValue({
-        userId: 'u1',
-        gameCoin: '110',
-        marketingPoint: '0',
-      } as unknown as Wallet);
-
-      const res = await service.apply({
-        userId: 'u1',
-        pool: 'game',
-        delta: 10,
-        bizId: 'b1',
-        reason: 'interact',
-      });
-
-      expect(res.duplicated).toBe(true);
-      expect(res.entry.id).toBe('L1');
-      expect(res.wallet.gameCoin).toBe(110);
-    });
-
-    it('唯一冲突但查不到原账目(并发未提交)：抛 ConflictException 让客户端重试', async () => {
-      dataSource.transaction.mockRejectedValue({ code: '23505' });
-      ledgers.findOne.mockResolvedValue(null);
-
-      await expect(
-        service.apply({
-          userId: 'u1',
-          pool: 'game',
-          delta: 10,
-          bizId: 'b1',
+      expect(ledger.post).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'issue',
           reason: 'interact',
+          bizKey: 'b1',
+          actorUserId: 'u1',
+          scope: 'user',
+          legs: [
+            { account: { userId: 'u1' }, assetCode: GAME_COIN, delta: 10 },
+          ],
         }),
-      ).rejects.toBeInstanceOf(ConflictException);
+      );
+    });
+
+    it('marketing 池映射到 marketing_point，负数 delta 落 burn 凭证', async () => {
+      await service.apply({
+        userId: 'u1',
+        pool: 'marketing',
+        delta: -20,
+        bizId: 'b2',
+        reason: 'exchange',
+      });
+
+      expect(ledger.post).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'burn',
+          legs: [
+            {
+              account: { userId: 'u1' },
+              assetCode: MARKETING_POINT,
+              delta: -20,
+            },
+          ],
+        }),
+      );
+    });
+
+    it('出参回读整个钱包：本次只碰一池，另一池的值仍需查库', async () => {
+      const res = await service.apply({
+        userId: 'u1',
+        pool: 'game',
+        delta: 10,
+        bizId: 'b1',
+        reason: 'interact',
+      });
+
+      expect(res.wallet.marketingPoint).toBe(7);
+      expect(res.entry).toMatchObject({
+        txnId: 'T1',
+        pool: 'game',
+        delta: 10,
+        balanceAfter: 110,
+      });
+      expect(res.duplicated).toBe(false);
+    });
+
+    it('透传 duplicated：幂等回放不该被门面吞掉', async () => {
+      ledger.post.mockResolvedValue({
+        txnId: 'T1',
+        bizId: 'u1:b1',
+        balances: {},
+        minted: [],
+        duplicated: true,
+      });
+      const res = await service.apply({
+        userId: 'u1',
+        pool: 'game',
+        delta: 10,
+        bizId: 'b1',
+        reason: 'interact',
+      });
+      expect(res.duplicated).toBe(true);
     });
   });
 
   describe('adminGrant', () => {
     it('正数 → admin_grant，负数 → admin_deduct', async () => {
-      // 本例只关心透传给 apply 的 reason/delta，返回值形状随便给个合法的
       const spy = jest.spyOn(service, 'apply').mockResolvedValue({
-        wallet: { gameCoin: 0, marketingPoint: 0 },
-        entry: {} as ApplyResult['entry'],
+        wallet: {
+          gameCoin: 0,
+          marketingPoint: 0,
+          gameCoinFrozen: 0,
+          marketingPointFrozen: 0,
+        },
+        entry: {
+          txnId: 'T',
+          pool: 'game',
+          delta: 0,
+          balanceAfter: 0,
+          bizId: '',
+        },
         duplicated: false,
       });
 
@@ -258,6 +209,44 @@ describe('EconomyService', () => {
       });
       expect(spy).toHaveBeenLastCalledWith(
         expect.objectContaining({ reason: 'admin_deduct', delta: -5 }),
+      );
+    });
+
+    /**
+     * 后台批量发放的幂等键必须由「运营填的 bizId + 玩家 id」派生，且不带
+     * `u{userId}:` 前缀。整批共用一个键的话，全局唯一的 `asset_txn.biz_id`
+     * 只会让第一个人拿到东西，其余人全部命中幂等回放。
+     */
+    it('派生出「不带玩家前缀、但含玩家 id」的幂等键', async () => {
+      const spy = jest.spyOn(service, 'apply').mockResolvedValue({
+        wallet: {
+          gameCoin: 0,
+          marketingPoint: 0,
+          gameCoinFrozen: 0,
+          marketingPointFrozen: 0,
+        },
+        entry: {
+          txnId: 'T',
+          pool: 'game',
+          delta: 0,
+          balanceAfter: 0,
+          bizId: '',
+        },
+        duplicated: false,
+      });
+
+      await service.adminGrant({
+        userId: 'u42',
+        pool: 'game',
+        delta: 5,
+        bizId: 'batch-2026',
+      });
+
+      expect(spy).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          bizId: 'admin:batch-2026:u42',
+          actorIsPlayer: false,
+        }),
       );
     });
   });

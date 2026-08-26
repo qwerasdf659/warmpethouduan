@@ -40,7 +40,7 @@ export interface UseConsumableResult {
  * `ItemsService` 被后台、兑换、图鉴、家园共用，它们都不需要知道 `PetService`。
  *
  * 消耗品在经济里的定位是**可重复消耗的 sink**：收藏品买断后就不再吸币，
- * 长期通胀只能靠这类项和扭蛋压住（见 `item-seed.ts` 的定价口径）。
+ * 长期通胀只能靠这类项和扭蛋压住（见 `ledger/asset-seed.ts` 的定价口径）。
  */
 @Injectable()
 export class ConsumableService {
@@ -66,12 +66,12 @@ export class ConsumableService {
 
     return {
       items: defs.map((d) => ({
-        key: d.key,
+        key: d.code,
         name: d.name,
         price: d.price,
-        pool: d.pool,
-        effect: table[d.key] ?? {},
-        owned: owned.get(d.id) ?? 0,
+        pool: d.priceAsset === 'marketing_point' ? 'marketing' : 'game',
+        effect: table[d.code] ?? {},
+        owned: owned.get(d.code) ?? 0,
         sortOrder: d.sortOrder,
       })),
       wallet,
@@ -81,7 +81,7 @@ export class ConsumableService {
   /** 购买消耗品（可一次买多份）。 */
   async buy(userId: string, itemKey: string, qty: number, bizId: string) {
     const def = await this.items.getDefByKey(itemKey);
-    if (!def || def.type !== CONSUMABLE_TYPE) {
+    if (!def || def.itemType !== CONSUMABLE_TYPE) {
       throw new NotFoundException('消耗品不存在');
     }
     return this.items.buy(userId, itemKey, bizId, qty);
@@ -90,34 +90,36 @@ export class ConsumableService {
   /**
    * 使用一份消耗品：先扣道具、再施加效果。
    *
-   * 顺序刻意是「扣道具 → 加效果」而非反过来：效果施加失败（如没有宠物）时
-   * 道具已经扣掉是可修复的（客服补发），但反过来是**能白刷增益**的漏洞。
-   * 扣减用条件 UPDATE 保证并发下不会一份用两次。
+   * 顺序刻意是「扣道具 → 加效果」而非反过来：反过来是**能白刷增益**的漏洞。
+   * 而「扣了道具但效果没生效」现在是可自愈的 —— 扣减以 `bizId` 持久幂等，
+   * 客户端用同一个 bizId 重试会命中回放（不再扣第二份）并重新施加效果。
+   * 旧模型下这里只有 Redis 24h 去重，隔日重试就真的再扣一份。
    */
   async use(
     userId: string,
     itemKey: string,
+    bizId: string,
     petId?: string,
   ): Promise<UseConsumableResult> {
     const def = await this.items.getDefByKey(itemKey);
-    if (!def || def.type !== CONSUMABLE_TYPE) {
+    if (!def || def.itemType !== CONSUMABLE_TYPE) {
       throw new NotFoundException('消耗品不存在');
     }
 
     const table = await this.config.get('items.consumables');
-    const effect = table[def.key];
+    const effect = table[def.code];
     if (isEmptyEffect(effect)) {
       // 目录里加了消耗品但忘配效果：宁可拒绝，也不要扣掉道具什么都不发生
       throw new BadRequestException('该消耗品暂未配置效果，请联系客服');
     }
 
     return this.lock.withLock(`pet:${userId}`, async () => {
-      const left = await this.items.consumeOwned(userId, def.id, 1);
-      if (left === null) throw new BadRequestException('该消耗品数量不足');
+      // 扣减带持久幂等（bizId 落 asset_txn.biz_id），重复提交回放而不是再扣一份
+      const left = await this.items.consumeOwned(userId, def.code, bizId, 1);
 
       const applied = await this.pet.applyConsumable(userId, effect, petId);
       return {
-        itemKey: def.key,
+        itemKey: def.code,
         left,
         effect,
         pet: applied.pet,

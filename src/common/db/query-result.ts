@@ -16,9 +16,10 @@
  * 兑换码领用、库存扣减都靠它），一旦这个判断失效，占用就完全不设防。
  *
  * 已经踩过三次：
- *  - `EconomyService` 余额读成 `NaN`；
+ *  - 旧 `EconomyService` 余额读成 `NaN`；
  *  - `PromoService.claim` 的 `max_uses` 判断变成死代码，兑换码可被无限核销；
- *  - `ItemsService.consumeOwned` 库存不足时返回 `NaN` 而非 `null`，调用方判空放行。
+ *  - 旧 `ItemsService.consumeOwned` 库存不足时返回 `NaN` 而非 `null`，调用方判空放行
+ *    （账本重构后该方法改为余额不足直接抛异常，不再有「返回值需要判空」的口子）。
  *
  * 所以**所有裸 SQL 的返回值都必须经过这里**，不要在调用点直接取下标。
  */

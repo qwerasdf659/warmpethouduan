@@ -144,21 +144,41 @@ export interface Paged<T> {
 export interface WalletView {
   gameCoin: number;
   marketingPoint: number;
+  /** 挂单/出价冻结中的部分：有余额不等于能花 */
+  gameCoinFrozen: number;
+  marketingPointFrozen: number;
 }
 
-/** 对账报告：余额与流水累计的一致性检查结果。 */
+/** 一条不变量的校验结果。`count = -1` 表示该条 SQL 本身执行失败。 */
+export interface InvariantResult {
+  /** 编号与架构设计 §2.1 一一对应 */
+  id: number;
+  name: string;
+  ok: boolean;
+  count: number;
+  samples: Record<string, unknown>[];
+}
+
+/** 可兑资产的待兑付负债（财务口径）。 */
+export interface LiabilityReport {
+  assetCode: string;
+  issued: number;
+  burned: number;
+  outstanding: number;
+}
+
+/**
+ * 对账报告：账本 11 项不变量的校验结果。
+ *
+ * 结构随账本重构整体换过一次 —— 旧版是「钱包余额 vs 流水累计」单一维度
+ * （`mismatches`/`negatives`/`orphanLedgerUsers`），现在是逐条不变量。
+ */
 export interface ReconcileReport {
   checkedAt: string;
-  walletCount: number;
-  mismatches: {
-    userId: string;
-    pool: 'game' | 'marketing';
-    wallet: number;
-    ledgerSum: number;
-    diff: number;
-  }[];
-  negatives: { userId: string; pool: 'game' | 'marketing'; amount: number }[];
-  orphanLedgerUsers: string[];
+  accountCount: number;
+  invariants: InvariantResult[];
+  liabilities: LiabilityReport[];
+  statRowsMaterialized: number;
   ok: boolean;
 }
 
@@ -174,7 +194,15 @@ export interface IdempotencyRecord {
 
 export interface LedgerEntry {
   id: string;
+  /** 所属凭证 id。冲正按凭证做（一张凭证可能有多条分录），不是按分录 */
+  txnId: string;
   userId: string;
+  /**
+   * 资产 code。流水里不止两种货币 —— 道具与消耗品的变动也有分录，
+   * 所以展示要按 code，不能只看 `pool`（`cons_snack +3` 会显示成「游戏币 +3」）。
+   */
+  assetCode: string;
+  /** 仅对两种货币有意义；道具类一律落 `game` */
   pool: 'game' | 'marketing';
   delta: number;
   balanceAfter: number;
@@ -202,20 +230,32 @@ export interface TrendPoint {
   coinIssued: number;
 }
 
+/**
+ * 资产定义（`asset_def`）。
+ *
+ * 主键是 `code` 而不是自增 id —— 行式统一账本里「加一种资产」是插一行，
+ * 自增 id 已不存在，增删改一律按 code 定位。
+ */
 export interface ItemDefView {
-  id: string;
-  key: string;
-  type: 'skin' | 'accessory' | 'furniture';
+  code: string;
+  /** 账本层的资产种类：unique 有身份可编号，stackable 只有数量 */
+  kind: 'currency' | 'stackable' | 'unique';
+  type: 'skin' | 'accessory' | 'furniture' | 'consumable' | null;
   name: string;
   slot: string | null;
   price: number;
   pool: 'game' | 'marketing';
   comfort: number;
+  /** 以下三个合规开关**只读**：改动需走数据库迁移，见后端 AdminItemsService */
+  tradable: boolean;
+  redeemable: boolean;
+  gachaOutput: boolean;
+  /** 限量总量（null = 不限量）。只能上调，不能低于 mintedCount */
+  mintLimit: number | null;
+  mintedCount: number;
   meta: Record<string, unknown>;
   enabled: boolean;
   sortOrder: number;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface GameConfigView {

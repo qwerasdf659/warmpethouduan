@@ -4,7 +4,7 @@ import { Column, Entity, PrimaryColumn } from 'typeorm';
  * 交易风控日统计。第三档不做风控，打金工作室三个月就能毁掉经济系统，
  * 因此这张表与「定向赠送」同期上线，不可延后。
  */
-@Entity('trade_risk_daily')
+@Entity({ name: 'trade_risk_daily', synchronize: false })
 export class TradeRiskDaily {
   @PrimaryColumn({ name: 'account_id', type: 'bigint' })
   accountId: string;

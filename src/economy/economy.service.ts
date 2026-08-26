@@ -1,55 +1,44 @@
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { LedgerService } from '../ledger/ledger.service';
 import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  InternalServerErrorException,
-} from '@nestjs/common';
-import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
-import { rowsOf } from '../common/db/query-result';
-import { Ledger } from '../entities/ledger.entity';
-import { Wallet } from '../entities/wallet.entity';
+  GAME_COIN,
+  LedgerReason,
+  MARKETING_POINT,
+  PostResult,
+} from '../ledger/ledger.types';
 
 /** 积分池。两池物理隔离，接口层禁止互转。 */
 export type WalletPool = 'game' | 'marketing';
 
-/** 变动原因白名单（落 varchar，不用 pg enum：加原因不必改表结构）。 */
-export const LEDGER_REASONS = [
-  'interact', // 互动照顾产出
-  'offline', // 离线收益
-  'race', // 赛跑奖励
-  'daily', // 签到 / 每日任务
-  'dex', // 图鉴解锁奖励
-  'ad', // 看广告奖励
-  'purchase', // 购买装扮 / 家具 / 消耗品（扣）
-  'boost', // 加速 / 体力恢复（扣）
-  'exchange', // 兑换中心（扣）
-  'promo', // 兑换码核销（营销积分的唯一玩家侧入口）
-  'gacha', // 扭蛋：抽奖花费（扣）与开出的币（发）共用此原因
-  'admin_grant', // 后台手动发放
-  'admin_deduct', // 后台手动扣减
-  'compensation', // 补偿
-] as const;
-export type LedgerReason = (typeof LEDGER_REASONS)[number];
-
-/**
- * 豁免封禁校验的原因。运营需要在封号后仍能结算补偿、追回违规收益，
- * 若一并拦死，被封账号将无法做任何账务处理。
- */
-const BAN_EXEMPT_REASONS: ReadonlySet<LedgerReason> = new Set([
-  'admin_grant',
-  'admin_deduct',
-  'compensation',
-]);
-
 export interface WalletView {
   gameCoin: number;
   marketingPoint: number;
+  /** 挂单/出价冻结中的部分（前端需要区分「有钱」与「能花的钱」） */
+  gameCoinFrozen: number;
+  marketingPointFrozen: number;
 }
 
 export interface LedgerView {
   id: string;
+  /**
+   * 所属凭证 id。
+   *
+   * 冲正是按**凭证**做的，不是按分录 —— 一张凭证可能有多条分录（买家/卖家/手续费），
+   * 只冲其中一条会把守恒打破。后台的冲正入口需要这个 id。
+   */
+  txnId: string;
+  /**
+   * 资产 code。
+   *
+   * 重构后流水里不止两种货币 —— 道具与消耗品的变动也有分录（这正是缺口 G1 的修复：
+   * 「我的皮肤没了」终于查得出来）。因此出参必须带 code，光靠 `pool` 无法区分
+   * `cons_snack +3` 和 `game_coin +3`。
+   */
+  assetCode: string;
+  /**
+   * 积分池。仅对两种货币有意义；道具类分录一律落 `game`，
+   * 前端应优先按 `assetCode` 展示，`pool` 只用于「快速筛两种货币」。
+   */
   pool: WalletPool;
   delta: number;
   balanceAfter: number;
@@ -68,286 +57,219 @@ export interface ApplyInput {
   bizId: string;
   reason: LedgerReason;
   refId?: string | null;
+  /** 服务端派生的键（定时任务、后台批量）传 false，跳过 `u{userId}:` 前缀 */
+  actorIsPlayer?: boolean;
 }
 
 export interface ApplyResult {
   wallet: WalletView;
-  entry: LedgerView;
-  /** true = 该 (bizId, pool) 之前已记账，本次为幂等回放，未二次变动余额 */
+  entry: Pick<LedgerView, 'pool' | 'delta' | 'balanceAfter' | 'bizId'> & {
+    txnId: string;
+  };
+  /** true = 该 bizId 之前已记账，本次为幂等回放，未二次变动余额 */
   duplicated: boolean;
 }
 
-const POOL_COLUMN: Record<WalletPool, string> = {
-  game: 'game_coin',
-  marketing: 'marketing_point',
+/** 池 → 资产 code。双池在新模型里是两个 `asset_def` 行，而不是两列。 */
+export const POOL_ASSET: Record<WalletPool, string> = {
+  game: GAME_COIN,
+  marketing: MARKETING_POINT,
 };
 
-interface WalletRow {
-  game_coin: string;
-  marketing_point: string;
-}
-
 /**
- * 经济域唯一记账入口。所有发放/扣减必须经此，禁止业务代码直接改 wallet。
+ * 货币视角的账本门面。
  *
- * 并发与幂等**不依赖 Redis 锁**，而是靠数据库：
- *  - 余额变动用 `UPDATE ... SET col = col + $delta WHERE col + $delta >= 0` 单语句原子完成，
- *    天然免竞态，且「余额不足」表现为影响 0 行；
- *  - 重复提交由 `uq_ledger_user_biz_pool` 唯一索引拦截，事务回滚后走幂等回放。
+ * 账本本身是行式统一的（货币 / 可堆叠道具 / 唯一实例同一套凭证与分录），但
+ * 大量存量接口的出参是 `{ gameCoin, marketingPoint }` 这个形状，客户端也按它渲染。
+ * 与其让十几个玩法各自去拼 `balances()['game_coin'].available`，不如在这里收口一次。
  *
- * 这样设计的关键收益：调用方（如持有 `pet:{userId}` 锁的宠物域）可以安全地调用本服务，
- * 不会因为再抢一把锁而自死锁——Redis 锁不可重入。
+ * 本类**不含任何记账逻辑**——它只做「池 ↔ 资产 code」和「余额 map ↔ WalletView」
+ * 两次翻译，实际写入一律委托 `LedgerService`。需要一次动多种资产（扣币 + 发道具）
+ * 的场景不要用它，用 `RewardService.exchange`。
  */
 @Injectable()
 export class EconomyService {
-  constructor(
-    @InjectDataSource() private readonly dataSource: DataSource,
-    @InjectRepository(Wallet) private readonly wallets: Repository<Wallet>,
-    @InjectRepository(Ledger) private readonly ledgers: Repository<Ledger>,
-  ) {}
+  private readonly logger = new Logger('Economy');
 
-  /** 读钱包（不存在则按 0 建行）。 */
+  constructor(private readonly ledger: LedgerService) {}
+
+  /** 读钱包（无账户时按 0 返回，不产生写）。 */
   async getWallet(userId: string): Promise<WalletView> {
-    await this.ensureWallet(this.dataSource.manager, userId);
-    const w = await this.wallets.findOne({ where: { userId } });
-    if (!w) throw new InternalServerErrorException('钱包创建失败');
+    const balances = await this.ledger.balances(userId);
     return {
-      gameCoin: this.num(w.gameCoin),
-      marketingPoint: this.num(w.marketingPoint),
+      gameCoin: balances[GAME_COIN]?.available ?? 0,
+      marketingPoint: balances[MARKETING_POINT]?.available ?? 0,
+      gameCoinFrozen: balances[GAME_COIN]?.frozen ?? 0,
+      marketingPointFrozen: balances[MARKETING_POINT]?.frozen ?? 0,
     };
   }
 
   /**
-   * 记一笔账并同步余额。同一 (userId, bizId, pool) 重复调用只生效一次。
+   * 记一笔货币账。同一 bizId 重复调用只生效一次。
    *
-   * 注意：单次调用只动**一个**池。需要同时动两池的场景目前不存在；
-   * 真出现时应新增一个显式的多池事务方法，而不是连调两次本方法（那样不是原子的）。
+   * 单次调用只动一个池。需要同时动两池、或同时动货币与道具的场景，
+   * 走 `RewardService.exchange`（一张凭证多条分录，真原子），
+   * **不要**连调两次本方法——那不是原子的。
    */
   async apply(input: ApplyInput): Promise<ApplyResult> {
-    const { userId, pool, delta, bizId, reason, refId = null } = input;
-
-    const column = POOL_COLUMN[pool];
-    if (!column) throw new BadRequestException('未知积分池');
-    if (!Number.isSafeInteger(delta) || delta === 0) {
+    const assetCode = POOL_ASSET[input.pool];
+    if (!assetCode) throw new BadRequestException('未知积分池');
+    if (!Number.isSafeInteger(input.delta) || input.delta === 0) {
       throw new BadRequestException('delta 必须为非零安全整数');
     }
-    if (!bizId) throw new BadRequestException('缺少幂等参数 bizId');
 
-    // 资金兜底：控制器的 PlayerStatusGuard 管准入，这里保证任何绕过路径
-    // （内部服务调用、将来新增的控制器忘挂守卫）都动不了封禁账号的钱。
-    const banExempt = BAN_EXEMPT_REASONS.has(reason);
-    const banClause = banExempt
-      ? ''
-      : ` AND EXISTS (SELECT 1 FROM "user" u
-                       WHERE u."id" = "wallet"."user_id" AND u."status" <> 'banned')`;
+    const isPlayer = input.actorIsPlayer ?? true;
+    const result = await this.ledger.post({
+      kind: input.delta > 0 ? 'issue' : 'burn',
+      reason: input.reason,
+      bizKey: input.bizId,
+      actorUserId: input.userId,
+      scope: isPlayer ? 'user' : 'sys',
+      legs: [
+        {
+          account: { userId: input.userId },
+          assetCode,
+          delta: input.delta,
+        },
+      ],
+      refId: input.refId ?? null,
+    });
 
-    try {
-      return await this.dataSource.transaction(async (m) => {
-        await this.ensureWallet(m, userId);
-
-        // 单语句完成「校验 + 变更」，并发下无需锁；余额不足或账号封禁 → 影响 0 行
-        const rows = rowsOf<WalletRow>(
-          await m.query(
-            `UPDATE "wallet"
-                SET "${column}" = "${column}" + $2, "updated_at" = now()
-              WHERE "user_id" = $1 AND "${column}" + $2 >= 0${banClause}
-          RETURNING "game_coin", "marketing_point"`,
-            [userId, delta],
-          ),
-        );
-
-        if (rows.length === 0) {
-          // 0 行有两种成因，仅在失败路径多查一次以给出正确报错，不拖慢正常路径
-          if (!banExempt) await this.assertNotBanned(m, userId);
-          throw new BadRequestException('余额不足');
-        }
-
-        const wallet: WalletView = {
-          gameCoin: this.num(rows[0].game_coin),
-          marketingPoint: this.num(rows[0].marketing_point),
-        };
-        const balanceAfter =
-          pool === 'game' ? wallet.gameCoin : wallet.marketingPoint;
-
-        // 唯一索引冲突 → 抛 23505 → 整个事务回滚（余额变更一并撤销）→ 外层走回放
-        const inserted = rowsOf<{ id: string; created_at: Date }>(
-          await m.query(
-            `INSERT INTO "ledger"
-               ("user_id","pool","delta","balance_after","biz_id","reason","ref_id")
-             VALUES ($1,$2,$3,$4,$5,$6,$7)
-          RETURNING "id","created_at"`,
-            [userId, pool, delta, balanceAfter, bizId, reason, refId],
-          ),
-        );
-
-        return {
-          wallet,
-          entry: {
-            id: String(inserted[0].id),
-            pool,
-            delta,
-            balanceAfter,
-            bizId,
-            reason,
-            refId,
-            createdAt: new Date(inserted[0].created_at).toISOString(),
-          },
-          duplicated: false,
-        };
-      });
-    } catch (e) {
-      if (this.isDuplicateLedger(e)) {
-        return this.replay(userId, pool, bizId);
-      }
-      throw e;
-    }
+    return this.toApplyResult(input, result);
   }
 
-  /** 流水分页（倒序）。可按池筛选。 */
+  /** 玩家流水分页（倒序）。可按池或具体资产筛选。 */
   async listLedger(
     userId: string,
-    opts: { page: number; pageSize: number; pool?: WalletPool },
+    opts: {
+      page: number;
+      pageSize: number;
+      pool?: WalletPool;
+      assetCode?: string;
+    },
   ): Promise<{ list: LedgerView[]; total: number }> {
-    const [rows, total] = await this.ledgers.findAndCount({
-      where: opts.pool ? { userId, pool: opts.pool } : { userId },
-      order: { id: 'DESC' },
-      skip: (opts.page - 1) * opts.pageSize,
-      take: opts.pageSize,
+    const { list, total } = await this.ledger.history(userId, {
+      page: opts.page,
+      pageSize: opts.pageSize,
+      assetCode: this.resolveAssetFilter(opts),
     });
-    return { list: rows.map((r) => this.toEntryView(r)), total };
+    return { list: list.map((e) => this.toLedgerView(e)), total };
   }
 
-  /**
-   * 后台全局流水分页（倒序）。可按玩家 / 池 / 原因筛选。
-   * 出参附带 userId，便于后台按玩家对账。
-   */
+  /** 后台全局流水分页（倒序）。可按玩家 / 池 / 资产 / 原因筛选。 */
   async listGlobalLedger(opts: {
     page: number;
     pageSize: number;
     userId?: string;
     pool?: WalletPool;
+    assetCode?: string;
     reason?: string;
-  }): Promise<{ list: (LedgerView & { userId: string })[]; total: number }> {
-    const where: Record<string, unknown> = {};
-    if (opts.userId) where.userId = opts.userId;
-    if (opts.pool) where.pool = opts.pool;
-    if (opts.reason) where.reason = opts.reason;
-
-    const [rows, total] = await this.ledgers.findAndCount({
-      where,
-      order: { id: 'DESC' },
-      skip: (opts.page - 1) * opts.pageSize,
-      take: opts.pageSize,
+  }): Promise<{
+    list: (LedgerView & { userId: string | null })[];
+    total: number;
+  }> {
+    const { list, total } = await this.ledger.globalHistory({
+      page: opts.page,
+      pageSize: opts.pageSize,
+      userId: opts.userId,
+      assetCode: this.resolveAssetFilter(opts),
+      reason: opts.reason,
     });
     return {
-      list: rows.map((r) => ({ ...this.toEntryView(r), userId: r.userId })),
+      list: list.map((e) => ({ ...this.toLedgerView(e), userId: e.userId })),
       total,
     };
   }
 
   /**
-   * 后台人工发币/扣币。delta 正数发放、负数扣减；走同一 `apply` 记账入口，
-   * 因此天然带 (userId,bizId,pool) 持久幂等与余额非负校验。
+   * 后台人工发币/扣币。走同一记账入口，因此天然带幂等与余额非负校验。
+   *
+   * `actorIsPlayer: false`：后台的 bizId 由运营填写或批量派生，不该被冠上
+   * 某个玩家的前缀——否则同一个运营批次针对不同玩家会拼出不同的键，
+   * 重试整批时无法幂等。
    */
   async adminGrant(input: {
     userId: string;
     pool: WalletPool;
     delta: number;
     bizId: string;
-    reason?: string;
     refId?: string | null;
   }): Promise<ApplyResult> {
-    const reason: LedgerReason =
-      input.delta >= 0 ? 'admin_grant' : 'admin_deduct';
+    // 后台人工改余额是绕过所有玩法规则的直接发放/扣减，必须留痕
+    this.logger.log(
+      `后台人工${input.delta >= 0 ? '发放' : '扣减'} user=${input.userId} pool=${input.pool} delta=${input.delta} biz=${input.bizId}`,
+    );
     return this.apply({
       userId: input.userId,
       pool: input.pool,
       delta: input.delta,
-      bizId: input.bizId,
-      reason,
+      bizId: `admin:${input.bizId}:${input.userId}`,
+      reason: input.delta >= 0 ? 'admin_grant' : 'admin_deduct',
       refId: input.refId ?? null,
+      actorIsPlayer: false,
     });
   }
 
   // ---------------------------------------------------------------- 内部
 
-  /** 仅在记账失败后调用，用于区分「余额不足」与「账号封禁」两种 0 行成因。 */
-  private async assertNotBanned(
-    m: EntityManager,
-    userId: string,
-  ): Promise<void> {
-    const rows = rowsOf<{ status: string; banned_reason: string | null }>(
-      await m.query(
-        `SELECT "status", "banned_reason" FROM "user" WHERE "id" = $1`,
-        [userId],
-      ),
-    );
-    if (rows[0]?.status === 'banned') {
-      throw new ForbiddenException(
-        rows[0].banned_reason
-          ? `账号已被封禁：${rows[0].banned_reason}`
-          : '账号已被封禁',
-      );
-    }
+  /**
+   * 把「池」与「资产 code」两种筛选收敛成一个 assetCode。
+   *
+   * 两者同时给时 `assetCode` 胜出：它更精确，而 `pool` 只是「快速筛两种货币」的
+   * 便捷入口。反过来让 `pool` 覆盖 `assetCode` 会让「查某件皮肤的流水」静默变成
+   * 「查游戏币的流水」—— 筛选被悄悄改掉比报错难查得多。
+   */
+  private resolveAssetFilter(opts: {
+    pool?: WalletPool;
+    assetCode?: string;
+  }): string | undefined {
+    if (opts.assetCode) return opts.assetCode;
+    return opts.pool ? POOL_ASSET[opts.pool] : undefined;
   }
 
-  private ensureWallet(m: EntityManager, userId: string): Promise<unknown> {
-    return m.query(
-      `INSERT INTO "wallet" ("user_id") VALUES ($1)
-       ON CONFLICT ("user_id") DO NOTHING`,
-      [userId],
-    );
-  }
-
-  /** 幂等回放：返回原始账目 + 当前余额，明确标记 duplicated。 */
-  private async replay(
-    userId: string,
-    pool: WalletPool,
-    bizId: string,
+  private async toApplyResult(
+    input: ApplyInput,
+    result: PostResult,
   ): Promise<ApplyResult> {
-    const entry = await this.ledgers.findOne({
-      where: { userId, pool, bizId },
-    });
-    if (!entry) {
-      // 唯一冲突却查不到原始记录，说明并发事务尚未提交；交由客户端重试
-      throw new ConflictException('请求处理中，请勿重复提交');
-    }
+    // 重读整个钱包而不是只用 result.balances 里变动的那一项：出参形状要求两池齐全，
+    // 而本次凭证只碰了一池，另一池的值仍需查库
+    const wallet = await this.getWallet(input.userId);
     return {
-      wallet: await this.getWallet(userId),
-      entry: this.toEntryView(entry),
-      duplicated: true,
+      wallet,
+      entry: {
+        txnId: result.txnId,
+        pool: input.pool,
+        delta: input.delta,
+        balanceAfter:
+          input.pool === 'game' ? wallet.gameCoin : wallet.marketingPoint,
+        bizId: result.bizId,
+      },
+      duplicated: result.duplicated,
     };
   }
 
-  private isDuplicateLedger(e: unknown): boolean {
-    const err = e as { code?: string; driverError?: { code?: string } };
-    const code = err?.code ?? err?.driverError?.code;
-    return code === '23505';
-  }
-
-  private toEntryView(e: Ledger): LedgerView {
+  private toLedgerView(e: {
+    id: string;
+    txnId: string;
+    assetCode: string;
+    delta: number;
+    balanceAfter: number;
+    bizId: string;
+    reason: string;
+    refId: string | null;
+    createdAt: string;
+  }): LedgerView {
     return {
       id: e.id,
-      pool: e.pool as WalletPool,
-      delta: this.num(e.delta),
-      balanceAfter: this.num(e.balanceAfter),
+      txnId: e.txnId,
+      assetCode: e.assetCode,
+      pool: e.assetCode === MARKETING_POINT ? 'marketing' : 'game',
+      delta: e.delta,
+      balanceAfter: e.balanceAfter,
       bizId: e.bizId,
       reason: e.reason,
       refId: e.refId,
-      createdAt: new Date(e.createdAt).toISOString(),
+      createdAt: e.createdAt,
     };
-  }
-
-  /**
-   * bigint(string) → number。金额存 bigint 是为了不吃浮点误差、量级留足，
-   * 但出参用 number（前端直接算进度/够不够买，免 BigInt 解析）。
-   * 2^53 ≈ 9.0e15，宠物游戏币量级远达不到；真越界宁可显式报错也不静默丢精度。
-   */
-  private num(v: string | number): number {
-    const n = typeof v === 'number' ? v : Number(v);
-    if (!Number.isSafeInteger(n)) {
-      throw new InternalServerErrorException('账户金额超出安全整数范围');
-    }
-    return n;
   }
 }

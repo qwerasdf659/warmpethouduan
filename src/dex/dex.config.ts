@@ -16,8 +16,9 @@ import {
  * 加来源必须同时改代码，故 schema 只放已实现的这几种。
  *
  * 养成类（`maxLevel`/`petCount`/`maxIntimacy`）看 `pet` 表；
- * 收集类（`ownedSkin`/`ownedAccessory`/`ownedFurniture`/`ownedAll`）看
- * `item_owned` 的**种类数**（同一件买多份不重复计数）。
+ * 收集类（`ownedSkin`/`ownedAccessory`/`ownedFurniture`/`ownedAll`）看持有的
+ * **种类数**（同一件买多份不重复计数），由 `InventoryService.ownedKindCount`
+ * 跨 `item_instance`（唯一物品）与 `asset_balance`（可堆叠）合并统计。
  */
 export type DexProgressType =
   | 'maxLevel'
@@ -48,10 +49,9 @@ export const COLLECT_TYPE_OF: Partial<Record<DexProgressType, string>> = {
 /**
  * `ownedAll` 计入的物品类型白名单。
  *
- * 用白名单而不是「把 `ownedKindCount` 的结果全加起来」：`consumable`（消耗品）
- * 也在 `item_owned` 里，但它是买了就用掉的日常道具，不是收藏品 ——
- * 全加的话「收集 10 种」买几种零食就凑满了，而且用光后种类数还会掉回去，
- * 出现「图鉴进度倒退」这种解释不清的现象。
+ * 用白名单而不是「把 `ownedKindCount` 的结果全加起来」：消耗品也会被统计到，
+ * 但它是买了就用掉的日常道具，不是收藏品 —— 全加的话「收集 10 种」买几种零食
+ * 就凑满了，而且用光后种类数还会掉回去，出现「图鉴进度倒退」这种解释不清的现象。
  */
 export const COLLECTIBLE_TYPES: string[] = Object.values(COLLECT_TYPE_OF);
 

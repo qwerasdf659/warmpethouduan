@@ -45,6 +45,6 @@ export class ConsumableController {
   @Idempotent()
   @UseInterceptors(IdempotencyInterceptor)
   use(@CurrentUser() user: AuthUser, @Body() dto: UseConsumableDto) {
-    return this.consumables.use(user.userId, dto.itemKey, dto.petId);
+    return this.consumables.use(user.userId, dto.itemKey, dto.bizId, dto.petId);
   }
 }

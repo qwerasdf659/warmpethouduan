@@ -37,7 +37,7 @@ const gain = Joi.number().integer().min(1).max(100);
 export const ITEMS_CONFIG = {
   'items.consumables': defineConfig<ConsumableTable>({
     description:
-      '消耗品使用效果（itemKey → 增益）。键必须与 item_def 中 type=consumable 的物品键一致',
+      '消耗品使用效果（itemKey → 增益）。键必须与 asset_def 中 meta.itemType=consumable 的资产 code 一致',
     default: DEFAULT_CONSUMABLES,
     schema: Joi.object()
       .pattern(
@@ -61,7 +61,7 @@ export type ItemsConfigShape = ShapeOf<typeof ITEMS_CONFIG>;
  * 效果是否为空（全部字段缺省）。
  *
  * 运营把某个消耗品的效果配成 `{}` 时，schema 的 `.min(1)` 会拦住写入，
- * 但**存量脏数据**和「item_def 里加了消耗品却忘了配效果」这两种情况仍会漏到运行期，
+ * 但**存量脏数据**和「asset_def 里加了消耗品却忘了配效果」这两种情况仍会漏到运行期，
  * 所以使用时还要再判一次。
  */
 export function isEmptyEffect(e: ConsumableEffect | undefined): boolean {

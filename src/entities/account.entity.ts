@@ -21,7 +21,7 @@ export type SystemCode = 'FEE' | 'ESCROW';
  * 对手方分录，全服写入会被串行化在 MINT 账户的同一行上。发行与销毁本就是凭空
  * 产生和消失，守恒在此不成立，其口径由 `asset_daily_stat` 承担。
  */
-@Entity('account')
+@Entity({ name: 'account', synchronize: false })
 @Check('ck_account_kind', `"kind" IN ('user','system')`)
 @Check(
   'ck_account_ref',

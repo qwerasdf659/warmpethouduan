@@ -8,20 +8,14 @@
  *
  * 用法：npm run build && node scripts/p2-verify-fulfillment.js
  */
-const P = '/home/devbox/project/node_modules/';
-require(P + 'dotenv').config({ path: '/home/devbox/project/.env' });
-const { Client } = require(P + 'pg');
-const { NestFactory } = require(P + '@nestjs/core');
-
-function db() {
-  return new Client({
-    host: process.env.DB_HOST,
-    port: Number(process.env.DB_PORT),
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-  });
-}
+const {
+  MARKETING_POINT,
+  db,
+  bootApp,
+  setAsset,
+  balanceOf,
+  cleanupUser,
+} = require('./_verify-fixture');
 
 async function makeOrder(c, userId, cost) {
   const r = await c.query(
@@ -35,12 +29,8 @@ async function makeOrder(c, userId, cost) {
 }
 
 async function main() {
-  console.log('· 加载 dist/app.module …');
-  const { AppModule } = require('/home/devbox/project/dist/app.module');
   console.log('· 启动应用上下文 …');
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    logger: ['error', 'warn'],
-  });
+  const app = await bootApp();
   console.log('· 上下文就绪');
   const {
     AdminExchangeService,
@@ -56,20 +46,10 @@ async function main() {
   );
   const userId = u.rows[0].id;
   const cost = 500;
-  await c.query(
-    `insert into wallet (user_id, game_coin, marketing_point) values ($1,0,0)
-     on conflict (user_id) do update set marketing_point=0`,
-    [userId],
-  );
+  // 从 0 起：下面两个用例都是「订单已建、看退款退几次」，初始余额必须干净
+  await setAsset(app, userId, MARKETING_POINT, 0);
 
-  const balance = async () =>
-    Number(
-      (
-        await c.query(`select marketing_point from wallet where user_id=$1`, [
-          userId,
-        ])
-      ).rows[0].marketing_point,
-    );
+  const balance = () => balanceOf(app, userId, MARKETING_POINT);
 
   try {
     // ---- A. 并发双取消
@@ -84,14 +64,12 @@ async function main() {
     );
     console.log(
       balA === cost
-        ? '✓ 只退了一次 —— 靠 ledger 唯一键 (user_id,biz_id,pool) 拦住第二次，不是靠状态判断'
+        ? '✓ 只退了一次 —— 靠 asset_txn.biz_id 全局唯一键拦住第二次，不是靠状态判断'
         : `✗ 退款金额异常：${balA}`,
     );
 
     // ---- B. 并发「发货」与「取消退款」
-    await c.query(`update wallet set marketing_point=0 where user_id=$1`, [
-      userId,
-    ]);
+    await setAsset(app, userId, MARKETING_POINT, 0);
     const idB = await makeOrder(c, userId, cost);
     const rb = await Promise.allSettled([
       svc.ship(idB, { trackingNo: 'SF-P2-TEST' }),
@@ -128,10 +106,7 @@ async function main() {
       else console.log(`    ${name} 返回 status=${x.value?.order?.status}`);
     });
   } finally {
-    await c.query(`delete from redeem_order where user_id=$1`, [userId]);
-    await c.query(`delete from ledger where user_id=$1`, [userId]);
-    await c.query(`delete from wallet where user_id=$1`, [userId]);
-    await c.query(`delete from "user" where id=$1`, [userId]);
+    await cleanupUser(c, userId);
     console.log(`\n已清理临时用户 ${userId}`);
     await c.end();
     // app.close() 在本项目的上下文里不会返回（Redis 连接与定时器仍持有句柄），
