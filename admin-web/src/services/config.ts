@@ -37,6 +37,17 @@ export async function upsertConfig(
   return request(`/admin/config/${key}`, { method: 'PUT', data });
 }
 
+export async function getConfig(key: string): Promise<GameConfigView> {
+  return request(`/admin/config/${key}`, { method: 'GET' });
+}
+
+/** 恢复为代码内置默认值（保留该行，运营仍可继续调）。 */
+export async function resetConfig(
+  key: string,
+): Promise<{ config: GameConfigView }> {
+  return request(`/admin/config/${key}/reset`, { method: 'POST' });
+}
+
 export async function deleteConfig(key: string): Promise<{ ok: true }> {
   return request(`/admin/config/${key}`, { method: 'DELETE' });
 }

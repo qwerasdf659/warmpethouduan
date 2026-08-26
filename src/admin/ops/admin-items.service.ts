@@ -24,6 +24,26 @@ export class AdminItemsService {
     return { list };
   }
 
+  /**
+   * 补发用的精简目录。包含已下架物品：活动限定款下架后客服仍可能要补发。
+   */
+  async grantable(): Promise<{
+    list: { key: string; name: string; type: string; slot: string | null }[];
+  }> {
+    const rows = await this.defs.find({
+      select: { key: true, name: true, type: true, slot: true },
+      order: { sortOrder: 'ASC', id: 'ASC' },
+    });
+    return {
+      list: rows.map((d) => ({
+        key: d.key,
+        name: d.name,
+        type: d.type,
+        slot: d.slot,
+      })),
+    };
+  }
+
   async create(dto: CreateItemDefDto): Promise<{ item: ItemDef }> {
     const exists = await this.defs.findOne({ where: { key: dto.key } });
     if (exists) throw new BadRequestException('物品 key 已存在');

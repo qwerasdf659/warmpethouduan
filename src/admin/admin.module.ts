@@ -13,9 +13,12 @@ import { Wallet } from '../entities/wallet.entity';
 import { Ledger } from '../entities/ledger.entity';
 import { RedeemOrder } from '../entities/redeem-order.entity';
 import { ItemDef } from '../entities/item-def.entity';
+import { PromoCode } from '../entities/promo-code.entity';
+import { PromoRedemption } from '../entities/promo-redemption.entity';
 import { GameConfig } from '../entities/game-config.entity';
 import { PetModule } from '../pet/pet.module';
 import { EconomyModule } from '../economy/economy.module';
+import { ItemsModule } from '../items/items.module';
 import { AdminPlayersService } from './ops/admin-players.service';
 import { AdminPlayersController } from './ops/admin-players.controller';
 import { AdminIdempotencyService } from './ops/admin-idempotency.service';
@@ -28,6 +31,8 @@ import { AdminConfigService } from './ops/admin-config.service';
 import { AdminConfigController } from './ops/admin-config.controller';
 import { AdminItemsService } from './ops/admin-items.service';
 import { AdminItemsController } from './ops/admin-items.controller';
+import { AdminPromoService } from './ops/admin-promo.service';
+import { AdminPromoController } from './ops/admin-promo.controller';
 import { AdminExchangeService } from './ops/admin-exchange.service';
 import { AdminExchangeController } from './ops/admin-exchange.controller';
 import { AdminAuthController } from './auth/admin-auth.controller';
@@ -70,8 +75,12 @@ import { AdminBootstrapService } from './admin-bootstrap.service';
       RedeemOrder,
       ItemDef,
       GameConfig,
+      PromoCode,
+      PromoRedemption,
     ]),
     PetModule,
+    // 后台补发装扮/家具走 ItemsService.grant
+    ItemsModule,
     EconomyModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -95,6 +104,7 @@ import { AdminBootstrapService } from './admin-bootstrap.service';
     AdminConfigController,
     AdminItemsController,
     AdminExchangeController,
+    AdminPromoController,
   ],
   providers: [
     AdminAuthService,
@@ -111,6 +121,7 @@ import { AdminBootstrapService } from './admin-bootstrap.service';
     AdminConfigService,
     AdminItemsService,
     AdminExchangeService,
+    AdminPromoService,
     AdminBootstrapService,
     AdminJwtAuthGuard,
     RolesGuard,

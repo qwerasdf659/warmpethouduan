@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { ClockService } from '../../common/clock/clock.service';
 import { EconomyService } from '../../economy/economy.service';
 import { RedeemOrder } from '../../entities/redeem-order.entity';
 import {
@@ -27,6 +28,7 @@ export class AdminExchangeService {
     @InjectRepository(RedeemOrder)
     private readonly orders: Repository<RedeemOrder>,
     private readonly economy: EconomyService,
+    private readonly clock: ClockService,
   ) {}
 
   async list(
@@ -49,6 +51,7 @@ export class AdminExchangeService {
     const patch: Partial<RedeemOrder> = {
       status: 'shipped',
       trackingNo: dto.trackingNo ?? null,
+      shippedAt: this.clock.now(),
     };
     if (dto.remark !== undefined) patch.remark = dto.remark;
 
@@ -80,7 +83,11 @@ export class AdminExchangeService {
     if (order.status === 'pending') {
       const res = await this.orders.update(
         { id, status: 'pending' },
-        { status: 'cancelled', remark: dto.reason ?? '运营取消并退款' },
+        {
+          status: 'cancelled',
+          remark: dto.reason ?? '运营取消并退款',
+          cancelledAt: this.clock.now(),
+        },
       );
       if (!res.affected) {
         const fresh = await this.mustFind(id);

@@ -16,6 +16,8 @@ import { User } from './user.entity';
  */
 @Entity('race_record')
 @Index('idx_race_user_id_id', ['userId', 'id'])
+// 影子采样按「赛道 + 等级带 + 时间」捞成绩，没这条索引会全表扫
+@Index('idx_race_ghost_sample', ['trackKey', 'petLevel', 'createdAt'])
 export class RaceRecord {
   @PrimaryGeneratedColumn('increment', { type: 'bigint' })
   id: string;
@@ -36,9 +38,46 @@ export class RaceRecord {
   @Column({ name: 'pet_level', type: 'int' })
   petLevel: number;
 
-  /** 玩家战力得分（服务端算定） */
+  /**
+   * 战力快照（speed×2 + endurance 取整）。
+   * ⚠ **不再决定名次**——名次由 `finish_time` 升序排出，这一列只留作数值分析
+   * 与历史记录的可比对锚点（旧记录的 rank 就是按它算的）。
+   */
   @Column({ type: 'int' })
   score: number;
+
+  /**
+   * 完赛时间（秒，3 位小数）。判定的核心量：名次与评级都由它派生。
+   * 旧记录（战力模型时期）为 null，影子采样会跳过这些行。
+   */
+  @Column({
+    name: 'finish_time',
+    type: 'numeric',
+    precision: 10,
+    scale: 3,
+    nullable: true,
+    transformer: {
+      to: (v: number | null) => v,
+      from: (v: string | null) => (v === null ? null : Number(v)),
+    },
+  })
+  finishTime: number | null;
+
+  /** 评级 S/A/B/C（完赛时间比对赛道基准时间）。旧记录为 null。 */
+  @Column({ type: 'varchar', length: 2, nullable: true })
+  grade: 'S' | 'A' | 'B' | 'C' | null;
+
+  /**
+   * 本场影子来源：`player` 全部采自真实玩家成绩、`mixed` 部分采样、
+   * `npc` 全部由服务端生成。用于排查「这场对手怎么这么快」。
+   */
+  @Column({
+    name: 'ghost_source',
+    type: 'varchar',
+    length: 8,
+    nullable: true,
+  })
+  ghostSource: 'player' | 'mixed' | 'npc' | null;
 
   /** 最终名次（1 起） */
   @Column({ type: 'int' })

@@ -22,9 +22,14 @@ export class ItemDef {
   @Column({ type: 'varchar', length: 48 })
   key: string;
 
-  /** skin 皮肤 | accessory 配饰 | furniture 家具 */
+  /**
+   * skin 皮肤 | accessory 配饰 | furniture 家具 | consumable 消耗品
+   *
+   * 前三类是**一次性买断的收藏品**（计入图鉴收集口径），consumable 是
+   * **可重复消耗**的（用掉就没了，不计图鉴），两者的经济学作用完全不同。
+   */
   @Column({ type: 'varchar', length: 16 })
-  type: 'skin' | 'accessory' | 'furniture';
+  type: 'skin' | 'accessory' | 'furniture' | 'consumable';
 
   @Column({ type: 'varchar', length: 48 })
   name: string;
@@ -44,6 +49,14 @@ export class ItemDef {
   /** 家具舒适度贡献（换装类为 0） */
   @Column({ type: 'int', default: 0 })
   comfort: number;
+
+  /** 家具占格宽（家园网格，单位格；换装类恒为 1 且不参与摆放） */
+  @Column({ name: 'grid_w', type: 'int', default: 1 })
+  gridW: number;
+
+  /** 家具占格高 */
+  @Column({ name: 'grid_h', type: 'int', default: 1 })
+  gridH: number;
 
   /** 扩展字段（贴图、颜色、尺寸等），前端渲染用 */
   @Column({ type: 'jsonb', default: {} })

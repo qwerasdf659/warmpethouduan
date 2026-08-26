@@ -1,8 +1,12 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
+import { ClockService } from '../../common/clock/clock.service';
 import { EconomyService } from '../../economy/economy.service';
 import { RedeemOrder } from '../../entities/redeem-order.entity';
 import { AdminExchangeService } from './admin-exchange.service';
+
+/** 固定时钟，便于断言履约时间被写进了独立列。 */
+const NOW = new Date('2026-08-26T10:00:00Z');
 
 /**
  * 履约状态机的并发约束。
@@ -38,6 +42,8 @@ describe('AdminExchangeService 履约状态机', () => {
       bizId: 'b1',
       address: null,
       trackingNo: null,
+      shippedAt: null,
+      cancelledAt: null,
       remark: null,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -63,6 +69,7 @@ describe('AdminExchangeService 履约状态机', () => {
     svc = new AdminExchangeService(
       orders as unknown as Repository<RedeemOrder>,
       economy as unknown as EconomyService,
+      { now: () => NOW } as unknown as ClockService,
     );
   });
 
@@ -93,6 +100,17 @@ describe('AdminExchangeService 履约状态机', () => {
         NotFoundException,
       );
     });
+
+    it('发货时间写进独立列，不依赖 updated_at', async () => {
+      orders.findOne.mockResolvedValue(order({ status: 'shipped' }));
+
+      await svc.ship('o1', { trackingNo: 'SF123' });
+
+      expect(orders.update).toHaveBeenCalledWith(
+        { id: 'o1', status: 'pending' },
+        expect.objectContaining({ shippedAt: NOW }),
+      );
+    });
   });
 
   describe('cancel 取消退款', () => {
@@ -103,7 +121,11 @@ describe('AdminExchangeService 履约状态机', () => {
 
       expect(orders.update).toHaveBeenCalledWith(
         { id: 'o1', status: 'pending' },
-        expect.objectContaining({ status: 'cancelled', remark: '缺货' }),
+        expect.objectContaining({
+          status: 'cancelled',
+          remark: '缺货',
+          cancelledAt: NOW,
+        }),
       );
       expect(economy.apply).toHaveBeenCalledWith(
         expect.objectContaining({

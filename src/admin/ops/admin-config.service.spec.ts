@@ -155,5 +155,56 @@ describe('AdminConfigService', () => {
       expect(list[0]).toMatchObject({ registered: true, modified: true });
       expect(list[1]).toMatchObject({ registered: false, default: null });
     });
+
+    it('键序不同但内容相同 → 不算「已改」', async () => {
+      // jsonb 存取会重排对象键，用 JSON.stringify 比较会把没动过的项全标成已改
+      const reordered = Object.fromEntries(
+        Object.entries(DEFAULT_RATES).reverse(),
+      );
+      repo.find.mockResolvedValue([
+        {
+          key: 'pet.rates',
+          value: reordered,
+          description: '',
+          updatedAt: new Date(),
+        },
+      ]);
+
+      const { list } = await svc.list();
+      expect(list[0].modified).toBe(false);
+    });
+
+    it('嵌套结构里改了一个数就算「已改」', async () => {
+      const tracks = CONFIG_REGISTRY['race.tracks'].default;
+      const tweaked = tracks.map((t, i) =>
+        i === 0 ? { ...t, entryCoin: t.entryCoin + 1 } : t,
+      );
+      repo.find.mockResolvedValue([
+        {
+          key: 'race.tracks',
+          value: tweaked,
+          description: '',
+          updatedAt: new Date(),
+        },
+      ]);
+
+      const { list } = await svc.list();
+      expect(list[0].modified).toBe(true);
+    });
+
+    it('数组顺序变了也算「已改」（档位顺序有语义）', async () => {
+      const tracks = CONFIG_REGISTRY['race.tracks'].default;
+      repo.find.mockResolvedValue([
+        {
+          key: 'race.tracks',
+          value: [...tracks].reverse(),
+          description: '',
+          updatedAt: new Date(),
+        },
+      ]);
+
+      const { list } = await svc.list();
+      expect(list[0].modified).toBe(true);
+    });
   });
 });

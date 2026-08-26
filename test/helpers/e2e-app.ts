@@ -113,10 +113,28 @@ export class E2eApp {
     );
   }
 
+  /**
+   * 直接改宠物心情。
+   * 心情参与赛跑配速，而接口不接受客户端上报数值，只能压库造。
+   */
+  async setPetMood(userId: string, mood: number): Promise<void> {
+    // 同时把结算基准拨到当前，否则读取时的惰性衰减会立刻把设的值算掉
+    await this.db.query(
+      `UPDATE pet SET mood = $2, last_seen_at = now() WHERE user_id = $1`,
+      [userId, mood],
+    );
+  }
+
   /** 删掉本次跑出来的所有数据：先删子表，再删 user，最后清 Redis 上的用户级键。 */
   async teardown(): Promise<void> {
     for (const userId of this.userIds) {
+      // 顺序即外键顺序：所有表都直接引用 user，故只需保证 user 最后删。
+      // 新增引用 user 的表必须登记到这里，否则删 user 会被外键拦住，
+      // 整个 e2e 会从「跑完自清」退化成「往开发库里堆垃圾」。
       for (const table of [
+        'promo_redemption',
+        'gacha_draw',
+        'gacha_state',
         'redeem_order',
         'user_address',
         'dex_claim',

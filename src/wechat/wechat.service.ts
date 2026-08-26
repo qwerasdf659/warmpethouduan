@@ -23,6 +23,14 @@ const MOCK_CODE_PREFIX = 'mock:';
 const MOCK_TAG_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
 
 /**
+ * 假登录账号的 openid 前缀。
+ *
+ * 导出而非内联：种子脚本要按它造号、清理脚本要按它圈定删除范围，
+ * 三处若各写各的字面量，改动前缀就会漏删测试数据。
+ */
+export const MOCK_OPENID_PREFIX = 'mock_openid_';
+
+/**
  * 微信小游戏服务端接口封装。
  * M1 只用 jscode2session（用登录 code 换 openid/unionid）。
  */
@@ -110,7 +118,7 @@ export class WechatService {
 
     this.logger.warn(`⚠ 假登录放行：tag=${tag}（未经微信校验）`);
     return {
-      openid: `mock_openid_${tag}`,
+      openid: `${MOCK_OPENID_PREFIX}${tag}`,
       unionid: undefined,
       sessionKey: 'mock-session-key',
     };

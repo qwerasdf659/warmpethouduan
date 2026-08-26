@@ -31,6 +31,19 @@ export class AdminItemsController {
     return this.service.list(type);
   }
 
+  /**
+   * 可补发物品的精简目录（只有 key/name/type/slot）。
+   *
+   * 单开这个端点而不是复用上面的 `list`，是因为 `@RequirePermissions` 是「全部满足」
+   * 语义：客服只有 `item:grant`，拿不到 `config:read`，就选不出要补发哪件。
+   * 精简字段也顺带避免把价格、启用状态这些定价信息暴露给只该发货的人。
+   */
+  @Get('grantable')
+  @RequirePermissions('item:grant')
+  grantable() {
+    return this.service.grantable();
+  }
+
   @Post()
   @RequirePermissions('config:write')
   @Audit('新建物品', 'item_def')

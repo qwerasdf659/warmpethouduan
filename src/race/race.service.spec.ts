@@ -1,4 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import Redis from 'ioredis';
 import { Repository } from 'typeorm';
 import { AdTokenService } from '../boost/ad-token.service';
 import { ClockService } from '../common/clock/clock.service';
@@ -19,6 +20,9 @@ const configStub = {
       'race.opponent_count': RACE_CONFIG['race.opponent_count'].default,
       'race.revive': RACE_REVIVE,
       'race.rank_factor': RACE_CONFIG['race.rank_factor'].default,
+      'race.formula': RACE_CONFIG['race.formula'].default,
+      'race.grade_thresholds': RACE_CONFIG['race.grade_thresholds'].default,
+      'race.ghost': RACE_CONFIG['race.ghost'].default,
     }),
 } as unknown as GameConfigService;
 
@@ -31,6 +35,7 @@ interface RacesStub {
   update: jest.Mock;
   save: jest.Mock;
   create: jest.Mock;
+  createQueryBuilder: jest.Mock;
 }
 interface PetStub {
   getBattleStats: jest.Mock;
@@ -42,6 +47,10 @@ interface EconomyStub {
 interface AdTokenStub {
   consume: jest.Mock;
 }
+interface RedisStub {
+  incr: jest.Mock;
+  expire: jest.Mock;
+}
 
 /**
  * 赛跑「看广告增值」两个端点的状态机与幂等约束。
@@ -52,6 +61,7 @@ describe('RaceService 看广告增值', () => {
   let pet: PetStub;
   let economy: EconomyStub;
   let adToken: AdTokenStub;
+  let redis: RedisStub;
   let svc: RaceService;
 
   /** 一场已结算、名次 2、奖励 100 的比赛。 */
@@ -63,6 +73,9 @@ describe('RaceService 看广告增值', () => {
       trackKey: 'meadow',
       petLevel: 3,
       score: 100,
+      finishTime: 21.5,
+      grade: 'A',
+      ghostSource: 'npc',
       rank: 2,
       totalRacers: 4,
       rewardCoin: 100,
@@ -76,12 +89,34 @@ describe('RaceService 看广告增值', () => {
     };
   }
 
+  /** 影子采样返回空：让 revive 走 NPC 兜底，名次可预期地只受公式影响。 */
+  interface SampleQb {
+    select: jest.Mock;
+    where: jest.Mock;
+    andWhere: jest.Mock;
+    orderBy: jest.Mock;
+    limit: jest.Mock;
+    getRawMany: jest.Mock;
+  }
+  function emptySampleQb(): SampleQb {
+    const qb: SampleQb = {
+      select: jest.fn(() => qb),
+      where: jest.fn(() => qb),
+      andWhere: jest.fn(() => qb),
+      orderBy: jest.fn(() => qb),
+      limit: jest.fn(() => qb),
+      getRawMany: jest.fn(() => Promise.resolve([])),
+    };
+    return qb;
+  }
+
   beforeEach(() => {
     races = {
       findOne: jest.fn(),
       update: jest.fn(() => Promise.resolve({ affected: 1 })),
       save: jest.fn(),
       create: jest.fn(),
+      createQueryBuilder: jest.fn(() => emptySampleQb()),
     };
     pet = {
       getBattleStats: jest.fn(() =>
@@ -93,6 +128,7 @@ describe('RaceService 看广告增值', () => {
           endurance: 11.6,
           stamina: 60,
           staminaMax: 104,
+          mood: 80,
         }),
       ),
     };
@@ -109,15 +145,22 @@ describe('RaceService 看广告增值', () => {
       ),
     };
     adToken = { consume: jest.fn(() => Promise.resolve(undefined)) };
+    redis = {
+      incr: jest.fn(() => Promise.resolve(1)),
+      expire: jest.fn(() => Promise.resolve(1)),
+    };
 
     svc = new RaceService(
       races as unknown as Repository<RaceRecord>,
       pet as unknown as PetService,
       economy as unknown as EconomyService,
-      // 本组用例只走 doubleReward / revive，二者都不读时钟
-      {} as unknown as ClockService,
+      // revive 会经影子采样读时钟算回溯起点，给个固定时钟
+      {
+        now: () => new Date('2026-08-26T00:00:00Z'),
+      } as unknown as ClockService,
       adToken as unknown as AdTokenService,
       configStub,
+      redis as unknown as Redis,
     );
   });
 
@@ -207,6 +250,50 @@ describe('RaceService 看广告增值', () => {
     });
   });
 
+  describe('settle 每日任务打点', () => {
+    it('首次结算成功：赛跑任务计数 +1 且带日切过期', async () => {
+      races.findOne.mockResolvedValue(
+        settledRace({ status: 'pending', settledAt: null }),
+      );
+
+      await svc.settle('u1', 'r1');
+
+      expect(redis.incr).toHaveBeenCalledWith('act:u1:20260826:race');
+      expect(redis.expire).toHaveBeenCalledWith(
+        'act:u1:20260826:race',
+        expect.any(Number),
+      );
+    });
+
+    it('重复结算（状态未流转）不再计数，否则能刷满赛跑任务', async () => {
+      races.findOne.mockResolvedValue(
+        settledRace({ status: 'pending', settledAt: null }),
+      );
+      races.update.mockResolvedValue({ affected: 0 });
+
+      await svc.settle('u1', 'r1');
+
+      expect(redis.incr).not.toHaveBeenCalled();
+    });
+
+    it('已结算走回放路径，不计数', async () => {
+      races.findOne.mockResolvedValue(settledRace());
+      await svc.settle('u1', 'r1');
+      expect(redis.incr).not.toHaveBeenCalled();
+    });
+
+    it('计数器故障不影响发奖（软失败不死亡）', async () => {
+      races.findOne.mockResolvedValue(
+        settledRace({ status: 'pending', settledAt: null }),
+      );
+      redis.incr.mockRejectedValue(new Error('redis down'));
+
+      const res = await svc.settle('u1', 'r1');
+      expect(res.rewardCoin).toBe(100);
+      expect(economy.apply).toHaveBeenCalled();
+    });
+  });
+
   describe('revive 复活重跑', () => {
     const pending = () =>
       settledRace({
@@ -231,7 +318,103 @@ describe('RaceService 看广告增值', () => {
       expect(res.status).toBe('pending');
       expect(res.rank).toBeGreaterThanOrEqual(1);
       expect(res.rank).toBeLessThanOrEqual(res.totalRacers);
-      expect(res.opponentScores).toHaveLength(res.totalRacers - 1);
+      expect(res.opponentFinishTimes).toHaveLength(res.totalRacers - 1);
+      expect(res.finishTime).toBeGreaterThan(0);
+      expect(['S', 'A', 'B', 'C']).toContain(res.grade);
+    });
+
+    it('重跑落库写入完赛时间与评级（不再只写战力得分）', async () => {
+      races.findOne.mockResolvedValue(pending());
+      await svc.revive('u1', 'r1', 'nonce2');
+
+      const calls = races.update.mock.calls as unknown[][];
+      const patch = calls[0][1] as Partial<RaceRecord>;
+      expect(calls[0][0]).toEqual({
+        id: 'r1',
+        status: 'pending',
+        reviveCount: 0,
+      });
+      expect(typeof patch.finishTime).toBe('number');
+      expect(['S', 'A', 'B', 'C']).toContain(patch.grade);
+      expect(['player', 'mixed', 'npc']).toContain(patch.ghostSource);
+    });
+
+    it('影子采样为空时退回 NPC，并标记 ghostSource=npc', async () => {
+      races.findOne.mockResolvedValue(pending());
+      const res = await svc.revive('u1', 'r1', 'nonce2');
+      expect(res.ghostSource).toBe('npc');
+    });
+
+    it('采样到足够真实成绩时用真人影子，并按等级带/赛道过滤', async () => {
+      races.findOne.mockResolvedValue(pending());
+      const qb = emptySampleQb();
+      qb.getRawMany.mockResolvedValue([
+        { finishTime: '18.5' },
+        { finishTime: '19.5' },
+        { finishTime: '20.5' },
+      ]);
+      races.createQueryBuilder.mockReturnValue(qb);
+
+      const res = await svc.revive('u1', 'r1', 'nonce2');
+
+      expect(res.ghostSource).toBe('player');
+      expect(res.opponentFinishTimes).toEqual([18.5, 19.5, 20.5]);
+      // 只采同赛道、排除自己、跳过没有完赛时间的旧记录
+      const clauses = (qb.andWhere.mock.calls as unknown[][]).map((c) =>
+        String(c[0]),
+      );
+      expect(clauses.some((c) => c.includes('user_id <>'))).toBe(true);
+      expect(clauses.some((c) => c.includes('finish_time IS NOT NULL'))).toBe(
+        true,
+      );
+      expect(clauses.some((c) => c.includes("status = 'settled'"))).toBe(true);
+      expect(clauses.some((c) => c.includes('pet_level BETWEEN'))).toBe(true);
+    });
+
+    it('采样到的异常成绩被钳进合理区间，不让刷榜号碾压新手', async () => {
+      races.findOne.mockResolvedValue(pending());
+      const qb = emptySampleQb();
+      // 0.001 秒是不可能的成绩（改档/刷榜），必须被钳到 baseTime×clampMin 以上
+      qb.getRawMany.mockResolvedValue([
+        { finishTime: '0.001' },
+        { finishTime: '0.002' },
+        { finishTime: '999999' },
+      ]);
+      races.createQueryBuilder.mockReturnValue(qb);
+
+      const res = await svc.revive('u1', 'r1', 'nonce2');
+      const ghost = RACE_CONFIG['race.ghost'].default;
+
+      for (const t of res.opponentFinishTimes) {
+        expect(t).toBeGreaterThan(1);
+        expect(t).toBeLessThan(1000);
+      }
+      // 最快的影子不会快过玩家基准时间的 clampMin 倍
+      const fastest = Math.min(...res.opponentFinishTimes);
+      expect(fastest).toBeGreaterThanOrEqual(
+        res.finishTime * ghost.clampMin * 0.8,
+      );
+    });
+
+    it('真实成绩不足 minSamples 时整场退回 NPC', async () => {
+      races.findOne.mockResolvedValue(pending());
+      const qb = emptySampleQb();
+      qb.getRawMany.mockResolvedValue([{ finishTime: '19.0' }]);
+      races.createQueryBuilder.mockReturnValue(qb);
+
+      const res = await svc.revive('u1', 'r1', 'nonce2');
+      expect(res.ghostSource).toBe('npc');
+    });
+
+    it('采样查询抛错不影响比赛（软失败不死亡）', async () => {
+      races.findOne.mockResolvedValue(pending());
+      races.createQueryBuilder.mockImplementation(() => {
+        throw new Error('db down');
+      });
+
+      const res = await svc.revive('u1', 'r1', 'nonce2');
+      expect(res.ghostSource).toBe('npc');
+      expect(res.finishTime).toBeGreaterThan(0);
     });
 
     it('用参赛那只宠的当前战力重掷（服务端权威）', async () => {

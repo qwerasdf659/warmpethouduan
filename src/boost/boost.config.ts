@@ -29,7 +29,7 @@ export interface AdTokenConfig {
  * 允许领取广告凭证的业务场景。**结构性**取值：每个 scene 对应一条具体的
  * 兑换代码路径，加 scene 必须同时改代码，故不开放给运营。
  */
-export const AD_SCENES = ['race_double', 'race_revive'] as const;
+export const AD_SCENES = ['ad_reward', 'race_double', 'race_revive'] as const;
 export type AdScene = (typeof AD_SCENES)[number];
 
 // ------------------------------------------------------------------ 配置项

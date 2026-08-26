@@ -42,8 +42,11 @@ export class User {
   bannedAt: Date | null;
 
   /**
-   * 玩家最后一次被服务端「看到」的时间。离线结算的时间基准：
-   * elapsed = min(客户端申报, now − last_seen_at)。登录/关键写操作时刷新。
+   * 玩家最后一次被服务端「看到」的时间。登录/关键写操作时刷新。
+   *
+   * 注意：离线结算**不看这个字段**，而是以 `offline_base_at` 为基准
+   * （`elapsed = now − offline_base_at`，再按 `pet.offline.maxHours` 封顶）。
+   * 客户端没有任何申报时长的入口 —— 接口只收 `bizId`，多传字段会被直接 400。
    */
   @Column({ name: 'last_seen_at', type: 'timestamptz', nullable: true })
   lastSeenAt: Date | null;

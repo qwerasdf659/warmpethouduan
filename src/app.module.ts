@@ -23,7 +23,13 @@ import { HomeModule } from './home/home.module';
 import { DexModule } from './dex/dex.module';
 import { BoostModule } from './boost/boost.module';
 import { ExchangeModule } from './exchange/exchange.module';
+import { PromoModule } from './promo/promo.module';
+import { GachaModule } from './gacha/gacha.module';
 import { AdminModule } from './admin/admin.module';
+import { PromoCode } from './entities/promo-code.entity';
+import { PromoRedemption } from './entities/promo-redemption.entity';
+import { GachaDraw } from './entities/gacha-draw.entity';
+import { GachaState } from './entities/gacha-state.entity';
 import { User } from './entities/user.entity';
 import { Pet } from './entities/pet.entity';
 import { Wallet } from './entities/wallet.entity';
@@ -77,6 +83,10 @@ import { AdminAuditLog } from './entities/admin-audit-log.entity';
           DexClaim,
           UserAddress,
           RedeemOrder,
+          PromoCode,
+          PromoRedemption,
+          GachaDraw,
+          GachaState,
           GameConfig,
           AdminUser,
           AdminRole,
@@ -128,6 +138,8 @@ import { AdminAuditLog } from './entities/admin-audit-log.entity';
     DexModule,
     BoostModule,
     ExchangeModule,
+    PromoModule,
+    GachaModule,
     AdminModule,
   ],
   controllers: [AppController],

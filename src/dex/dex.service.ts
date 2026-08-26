@@ -5,8 +5,21 @@ import { LockService } from '../common/lock/lock.service';
 import { GameConfigService } from '../config/game-config.service';
 import { EconomyService } from '../economy/economy.service';
 import { PetService, PetStateView } from '../pet/pet.service';
+import { ItemsService } from '../items/items.service';
 import { DexClaim } from '../entities/dex-claim.entity';
-import { DexEntry, getDexEntry } from './dex.config';
+import {
+  COLLECT_TYPE_OF,
+  COLLECTIBLE_TYPES,
+  DexEntry,
+  getDexEntry,
+} from './dex.config';
+
+/** 各进度口径的数据源快照（一次查好，供同一次请求内所有条目复用）。 */
+interface ProgressContext {
+  pets: PetStateView[];
+  /** 物品类型 -> 已拥有种类数 */
+  kinds: Record<string, number>;
+}
 
 export interface DexEntryView {
   key: string;
@@ -28,17 +41,18 @@ export class DexService {
     private readonly economy: EconomyService,
     private readonly lock: LockService,
     private readonly config: GameConfigService,
+    private readonly items: ItemsService,
   ) {}
 
   /** 图鉴列表（含进度/解锁/领取态）。 */
   async getDex(userId: string): Promise<{ entries: DexEntryView[] }> {
     const defs = await this.config.get('dex.entries');
-    const pets = await this.pet.peekPets(userId);
+    const ctx = await this.progressContext(userId, defs);
     const claimed = new Set(
       (await this.claims.find({ where: { userId } })).map((c) => c.entryKey),
     );
     return {
-      entries: defs.map((e) => this.toView(e, pets, claimed)),
+      entries: defs.map((e) => this.toView(e, ctx, claimed)),
     };
   }
 
@@ -52,8 +66,8 @@ export class DexService {
     if (!entry) throw new BadRequestException('未知图鉴条目');
 
     return this.lock.withLock(`pet:${userId}`, async () => {
-      const pets = await this.pet.peekPets(userId);
-      if (this.progressOf(entry, pets) < entry.target) {
+      const ctx = await this.progressContext(userId, defs);
+      if (this.progressOf(entry, ctx) < entry.target) {
         throw new BadRequestException('图鉴条目尚未解锁');
       }
       const exists = await this.claims.findOne({
@@ -80,7 +94,7 @@ export class DexService {
         (await this.claims.find({ where: { userId } })).map((c) => c.entryKey),
       );
       return {
-        entries: defs.map((e) => this.toView(e, pets, claimed)),
+        entries: defs.map((e) => this.toView(e, ctx, claimed)),
         gained: entry.reward,
         gameCoin: applied.wallet.gameCoin,
       };
@@ -89,25 +103,48 @@ export class DexService {
 
   // ---------------------------------------------------------------- 内部
 
-  private progressOf(entry: DexEntry, pets: PetStateView[]): number {
+  /**
+   * 一次性备好所有进度口径的数据源。
+   *
+   * 收集类条目的统计只在**真有**收集类条目时才查——图鉴是每次进页面都拉的接口，
+   * 不该为了几个可能被运营删掉的条目固定多打一次 join 查询。
+   */
+  private async progressContext(
+    userId: string,
+    defs: DexEntry[],
+  ): Promise<ProgressContext> {
+    const pets = await this.pet.peekPets(userId);
+    const needsCollect = defs.some((e) => e.type.startsWith('owned'));
+    const kinds = needsCollect
+      ? await this.items.ownedKindCount(userId)
+      : ({} as Record<string, number>);
+    return { pets, kinds };
+  }
+
+  private progressOf(entry: DexEntry, ctx: ProgressContext): number {
     switch (entry.type) {
       case 'maxLevel':
-        return pets.reduce((m, p) => Math.max(m, p.level), 0);
+        return ctx.pets.reduce((m, p) => Math.max(m, p.level), 0);
       case 'petCount':
-        return pets.length;
+        return ctx.pets.length;
       case 'maxIntimacy':
-        return pets.reduce((m, p) => Math.max(m, p.intimacy), 0);
-      default:
-        return 0;
+        return ctx.pets.reduce((m, p) => Math.max(m, p.intimacy), 0);
+      case 'ownedAll':
+        // 只累加收藏品类型：消耗品不计（理由见 COLLECTIBLE_TYPES 注释）
+        return COLLECTIBLE_TYPES.reduce((a, t) => a + (ctx.kinds[t] ?? 0), 0);
+      default: {
+        const itemType = COLLECT_TYPE_OF[entry.type];
+        return itemType ? (ctx.kinds[itemType] ?? 0) : 0;
+      }
     }
   }
 
   private toView(
     entry: DexEntry,
-    pets: PetStateView[],
+    ctx: ProgressContext,
     claimed: Set<string>,
   ): DexEntryView {
-    const progress = this.progressOf(entry, pets);
+    const progress = this.progressOf(entry, ctx);
     return {
       key: entry.key,
       name: entry.name,

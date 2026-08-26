@@ -19,6 +19,7 @@ import { AdminPlayersService } from './admin-players.service';
 import {
   AdjustPetDto,
   BanPlayerDto,
+  GrantItemDto,
   UnbanPlayerDto,
 } from './dto/player-write.dto';
 import { QueryPlayersDto } from './dto/query-players.dto';
@@ -70,5 +71,18 @@ export class AdminPlayersController {
   @Audit('宠物补偿调整', 'pet')
   adjustPet(@Param('id') id: string, @Body() dto: AdjustPetDto) {
     return this.service.adjustPet(id, dto);
+  }
+
+  /**
+   * 补发装扮/家具/背景。走独立的 `item:grant` 而不是 `player:write`：
+   * 发外观和封号是两类风险完全不同的操作，客服该能补发但不该能封号。
+   */
+  @Post(':id/items/grant')
+  @RequirePermissions('item:grant')
+  @Idempotent()
+  @UseInterceptors(IdempotencyInterceptor)
+  @Audit('补发物品', 'item')
+  grantItem(@Param('id') id: string, @Body() dto: GrantItemDto) {
+    return this.service.grantItem(id, dto);
   }
 }

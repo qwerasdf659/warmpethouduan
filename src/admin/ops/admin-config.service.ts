@@ -130,9 +130,33 @@ export class AdminConfigService {
       updatedAt: row.updatedAt,
       registered: !!entry,
       default: entry ? entry.default : null,
-      modified: entry
-        ? JSON.stringify(row.value) !== JSON.stringify(entry.default)
-        : false,
+      modified: entry ? !deepEqual(row.value, entry.default) : false,
     };
   }
+}
+
+/**
+ * 顺序无关的深比较。
+ *
+ * 不能用 `JSON.stringify(a) !== JSON.stringify(b)`：jsonb 存取会重排对象键，
+ * 于是从未被改过的配置也会被判成「已改」（实测 21 项里误报 12 项）。
+ * 「已改」标签和「恢复默认」按钮都依赖这个判断，误报会让它们彻底失去意义。
+ */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== typeof b || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
+      return false;
+    }
+    // 数组语义有序（如 pet.stages、race.tracks 的档位顺序），逐位比
+    return a.every((v, i) => deepEqual(v, b[i]));
+  }
+  if (typeof a !== 'object') return false;
+
+  const ao = a as Record<string, unknown>;
+  const bo = b as Record<string, unknown>;
+  const ak = Object.keys(ao);
+  if (ak.length !== Object.keys(bo).length) return false;
+  return ak.every((k) => Object.hasOwn(bo, k) && deepEqual(ao[k], bo[k]));
 }

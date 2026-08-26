@@ -68,6 +68,20 @@ export default defineConfig({
       ],
     },
     {
+      path: '/marketing',
+      name: '营销中心',
+      icon: 'GiftOutlined',
+      routes: [
+        { path: '/marketing', redirect: '/marketing/promo' },
+        {
+          path: '/marketing/promo',
+          name: '兑换码',
+          access: 'canReadPromo',
+          component: './Marketing/Promo',
+        },
+      ],
+    },
+    {
       path: '/config',
       name: '配置管理',
       icon: 'ToolOutlined',
@@ -122,6 +136,12 @@ export default defineConfig({
           name: '审计日志',
           access: 'canReadAudit',
           component: './System/AuditLog',
+        },
+        {
+          path: '/system/idempotency',
+          name: '幂等记录',
+          access: 'canReadPlayer',
+          component: './System/Idempotency',
         },
       ],
     },

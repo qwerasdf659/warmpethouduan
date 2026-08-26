@@ -9,7 +9,8 @@ import {
   PetService,
   type PetStateView,
 } from '../../pet/pet.service';
-import { AdjustPetDto } from './dto/player-write.dto';
+import { ItemsService } from '../../items/items.service';
+import { AdjustPetDto, GrantItemDto } from './dto/player-write.dto';
 import { QueryPlayersDto } from './dto/query-players.dto';
 
 export interface PlayerView {
@@ -32,6 +33,7 @@ export class AdminPlayersService {
     private readonly pet: PetService,
     private readonly lock: LockService,
     private readonly clock: ClockService,
+    private readonly items: ItemsService,
   ) {}
 
   private toView(u: User): PlayerView {
@@ -128,5 +130,18 @@ export class AdminPlayersService {
       exp: dto.exp,
     };
     return this.pet.adminAdjust(id, input);
+  }
+
+  /** 补发装扮/家具/背景：委托 ItemsService.grant（玩家级锁内累加背包）。 */
+  async grantItem(
+    id: string,
+    dto: GrantItemDto,
+  ): Promise<{ itemKey: string; qty: number; granted: number }> {
+    const u = await this.users.findOne({
+      where: { id },
+      select: { id: true },
+    });
+    if (!u) throw new NotFoundException('玩家不存在');
+    return this.items.grant(id, dto.itemKey, dto.qty ?? 1);
   }
 }

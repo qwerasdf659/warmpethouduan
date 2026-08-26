@@ -3,7 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EconomyService, WalletView } from '../../economy/economy.service';
 import { User } from '../../entities/user.entity';
-import { GrantWalletDto, QueryLedgerDto } from './dto/wallet-admin.dto';
+import {
+  GrantWalletBulkDto,
+  GrantWalletDto,
+  QueryLedgerDto,
+} from './dto/wallet-admin.dto';
 
 /**
  * 后台钱包运营：全局流水查询 + 人工发币/扣币。
@@ -46,6 +50,52 @@ export class AdminWalletService {
       refId: null,
     });
     return result;
+  }
+
+  /**
+   * 批量发币/扣币（活动补偿、批量发营销积分）。
+   *
+   * 三个刻意的设计：
+   *  - **每人一个派生 bizId**（`{bizId}:{userId}`）：整批用同一个 bizId 的话，
+   *    经济域的 `(user_id, biz_id, pool)` 唯一键只能保证「每人一次」，
+   *    但重试时无法区分是同一批还是新的一批。派生后重试整批完全幂等。
+   *  - **单人失败不中断整批**：一个玩家不存在或扣减余额不足，不该让其余 199 人
+   *    的发放回滚。逐个收集失败原因返回，运营据此补发。
+   *  - **顺序执行而非 Promise.all**：批量发放不是延迟敏感操作，串行让 DB 压力可控，
+   *    也让失败列表的顺序与输入一致、便于核对。
+   */
+  async grantBulk(dto: GrantWalletBulkDto): Promise<{
+    total: number;
+    succeeded: number;
+    failed: { userId: string; message: string }[];
+  }> {
+    const delta = dto.direction === 'grant' ? dto.amount : -dto.amount;
+    // 同一批里重复的 userId 去重：派生 bizId 相同，第二次本就是幂等回放，
+    // 但去重能让 succeeded 计数反映真实人数而不是提交次数
+    const targets = [...new Set(dto.userIds)];
+    const failed: { userId: string; message: string }[] = [];
+    let succeeded = 0;
+
+    for (const userId of targets) {
+      try {
+        await this.assertUserExists(userId);
+        await this.economy.adminGrant({
+          userId,
+          pool: dto.pool,
+          delta,
+          bizId: `${dto.bizId}:${userId}`,
+          refId: null,
+        });
+        succeeded += 1;
+      } catch (err) {
+        failed.push({
+          userId,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    return { total: targets.length, succeeded, failed };
   }
 
   private async assertUserExists(userId: string): Promise<void> {

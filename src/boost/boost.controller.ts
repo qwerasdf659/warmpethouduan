@@ -29,16 +29,20 @@ export class AdController {
     private readonly adToken: AdTokenService,
   ) {}
 
+  /**
+   * 广告奖励发放。需先 `POST /ad/token`（scene=ad_reward）领凭证，
+   * 播完广告后带 `adToken` 来核销 —— 与赛跑增值接口同一套风控。
+   */
   @Post('verify')
   @Idempotent()
   @UseInterceptors(IdempotencyInterceptor)
   verify(@CurrentUser() user: AuthUser, @Body() dto: AdVerifyDto) {
-    return this.boost.verifyAd(user.userId, dto.bizId);
+    return this.boost.verifyAd(user.userId, dto.bizId, dto.adToken);
   }
 
   /**
    * 领取一次性广告凭证（nonce）。播完激励视频后，把 nonce 作为 `adToken`
-   * 传给对应的增值接口（如 `/race/reward/double`、`/race/revive`）核销。
+   * 传给对应的接口核销（`/ad/verify`、`/race/reward/double`、`/race/revive`）。
    * 不幂等：每次调用签发一枚新凭证，受该 scene 的每日上限约束。
    */
   @Post('token')

@@ -2,7 +2,11 @@ import { BOOST_CONFIG } from '../boost/boost.config';
 import { DAILY_CONFIG } from '../daily/daily.config';
 import { DEX_CONFIG } from '../dex/dex.config';
 import { EXCHANGE_CONFIG } from '../exchange/exchange.config';
+import { GACHA_CONFIG } from '../gacha/gacha.config';
+import { HOME_CONFIG } from '../home/home.config';
+import { ITEMS_CONFIG } from '../items/items.config';
 import { PET_CONFIG } from '../pet/pet.config';
+import { PROMO_CONFIG } from '../promo/promo.config';
 import { RACE_CONFIG } from '../race/race.config';
 import type { ConfigEntry, ShapeOf } from './game-config.types';
 
@@ -20,6 +24,10 @@ export const CONFIG_REGISTRY = {
   ...BOOST_CONFIG,
   ...DEX_CONFIG,
   ...EXCHANGE_CONFIG,
+  ...GACHA_CONFIG,
+  ...HOME_CONFIG,
+  ...ITEMS_CONFIG,
+  ...PROMO_CONFIG,
 };
 
 /** key → 值类型 的映射，供 `GameConfigService` 提供类型安全的取值。 */

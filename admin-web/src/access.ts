@@ -15,6 +15,7 @@ export default function access(initialState:
     canReadPlayer: has('player:read'),
     canWritePlayer: has('player:write'),
     canWritePet: has('pet:write'),
+    canGrantItem: has('item:grant'),
     canReadAdmin: has('admin:read'),
     canWriteAdmin: has('admin:write'),
     canReadRole: has('role:read'),
@@ -28,6 +29,9 @@ export default function access(initialState:
     canWriteWallet: has('wallet:write'),
     canReadExchange: has('exchange:read'),
     canWriteExchange: has('exchange:write'),
+    // 兑换码单独授权：印码等于凭空造积分，不该并进 wallet:write
+    canReadPromo: has('promo:read'),
+    canWritePromo: has('promo:write'),
     canReadStats: has('stats:read'),
     canReadConfig: has('config:read'),
     canWriteConfig: has('config:write'),

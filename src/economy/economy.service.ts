@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
+import { rowsOf } from '../common/db/query-result';
 import { Ledger } from '../entities/ledger.entity';
 import { Wallet } from '../entities/wallet.entity';
 
@@ -21,9 +22,11 @@ export const LEDGER_REASONS = [
   'daily', // 签到 / 每日任务
   'dex', // 图鉴解锁奖励
   'ad', // 看广告奖励
-  'purchase', // 购买装扮 / 家具（扣）
+  'purchase', // 购买装扮 / 家具 / 消耗品（扣）
   'boost', // 加速 / 体力恢复（扣）
   'exchange', // 兑换中心（扣）
+  'promo', // 兑换码核销（营销积分的唯一玩家侧入口）
+  'gacha', // 扭蛋：抽奖花费（扣）与开出的币（发）共用此原因
   'admin_grant', // 后台手动发放
   'admin_deduct', // 后台手动扣减
   'compensation', // 补偿
@@ -143,7 +146,7 @@ export class EconomyService {
         await this.ensureWallet(m, userId);
 
         // 单语句完成「校验 + 变更」，并发下无需锁；余额不足或账号封禁 → 影响 0 行
-        const rows = this.rowsOf<WalletRow>(
+        const rows = rowsOf<WalletRow>(
           await m.query(
             `UPDATE "wallet"
                 SET "${column}" = "${column}" + $2, "updated_at" = now()
@@ -167,7 +170,7 @@ export class EconomyService {
           pool === 'game' ? wallet.gameCoin : wallet.marketingPoint;
 
         // 唯一索引冲突 → 抛 23505 → 整个事务回滚（余额变更一并撤销）→ 外层走回放
-        const inserted = this.rowsOf<{ id: string; created_at: Date }>(
+        const inserted = rowsOf<{ id: string; created_at: Date }>(
           await m.query(
             `INSERT INTO "ledger"
                ("user_id","pool","delta","balance_after","biz_id","reason","ref_id")
@@ -273,7 +276,7 @@ export class EconomyService {
     m: EntityManager,
     userId: string,
   ): Promise<void> {
-    const rows = this.rowsOf<{ status: string; banned_reason: string | null }>(
+    const rows = rowsOf<{ status: string; banned_reason: string | null }>(
       await m.query(
         `SELECT "status", "banned_reason" FROM "user" WHERE "id" = $1`,
         [userId],
@@ -314,25 +317,6 @@ export class EconomyService {
       entry: this.toEntryView(entry),
       duplicated: true,
     };
-  }
-
-  /**
-   * 归一化 `manager.query()` 的返回形状。TypeORM 在这里并不一致：
-   *   SELECT / INSERT ... RETURNING → `rows[]`
-   *   UPDATE / DELETE ... RETURNING → `[rows[], affectedCount]`
-   * 直接按下标取值会在语句类型或 TypeORM 版本变化时静默取到错误的东西
-   *（曾表现为余额读成 NaN），故统一在此收口。
-   */
-  private rowsOf<T>(raw: unknown): T[] {
-    if (!Array.isArray(raw)) return [];
-    if (
-      raw.length === 2 &&
-      Array.isArray(raw[0]) &&
-      typeof raw[1] === 'number'
-    ) {
-      return raw[0] as T[];
-    }
-    return raw as T[];
   }
 
   private isDuplicateLedger(e: unknown): boolean {

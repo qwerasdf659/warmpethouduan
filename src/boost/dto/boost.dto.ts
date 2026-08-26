@@ -21,11 +21,14 @@ export class AdVerifyDto {
   @MaxLength(128)
   bizId: string;
 
-  /** 广告场景标识（可选，仅记录用） */
-  @IsOptional()
+  /**
+   * `POST /ad/token`（scene=ad_reward）签发的一次性凭证，**必填**。
+   * 与赛跑增值接口同一套风控：没有凭证就发币等于「客户端说看了广告就给」。
+   */
   @IsString()
-  @MaxLength(32)
-  scene?: string;
+  @MinLength(1)
+  @MaxLength(64)
+  adToken: string;
 }
 
 export class SpeedupDto {

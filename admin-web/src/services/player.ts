@@ -60,3 +60,26 @@ export async function adjustPet(
     data: { bizId: newBizId(), ...payload },
   });
 }
+
+/**
+ * 补发装扮/家具/背景。
+ *
+ * ⚠ 幂等只到后端的 24h 请求窗口（物品发放没有 ledger 那样的持久唯一键），
+ * 所以 UI 上要给明确的成功反馈，别让运营因为不确定而重复点。
+ */
+export async function grantItem(
+  id: string,
+  payload: { itemKey: string; qty?: number; reason?: string },
+): Promise<{ itemKey: string; qty: number; granted: number }> {
+  return request(`/admin/players/${id}/items/grant`, {
+    method: 'POST',
+    data: { bizId: newBizId(), ...payload },
+  });
+}
+
+/** 可补发物品目录（走 item:grant 权限，客服无需 config:read）。 */
+export async function listGrantableItems(): Promise<{
+  list: { key: string; name: string; type: string; slot: string | null }[];
+}> {
+  return request('/admin/items/grantable', { method: 'GET' });
+}

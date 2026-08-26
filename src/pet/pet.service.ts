@@ -83,6 +83,8 @@ export interface BattleStats {
   endurance: number;
   stamina: number;
   staminaMax: number;
+  /** 结算后的当前心情：参与赛跑配速（心情差跑得慢），见 RaceService */
+  mood: number;
 }
 
 /** 后台补偿调整入参（数值均可选，未给则不动）。 */
@@ -114,6 +116,18 @@ interface SettledStats {
  *  - 保证同一次请求内衰减速率、成长曲线、上限口径完全一致（读一半配置被改掉会算出矛盾结果）；
  *  - 让 settle/levelOf 这些纯计算保持同步且可单测，不必为了取配置变成 async。
  */
+/** 离线收益预览（出参）。`comfortFactor` 让前端能解释「家园加成 +x%」。 */
+export interface OfflineView {
+  elapsedSec: number;
+  cappedSec: number;
+  maxHours: number;
+  /** 已含等级加成与家园加成的时薪 */
+  coinPerHour: number;
+  /** 家园舒适度换算的加成系数，0 表示没有家具 */
+  comfortFactor: number;
+  claimableCoin: number;
+}
+
 export interface PetTuning {
   rates: PetRates;
   growth: PetGrowth;
@@ -512,6 +526,66 @@ export class PetService {
     });
   }
 
+  /**
+   * 施加消耗品增益（由 ItemsService 在扣掉道具后调用）。
+   *
+   * 与 `interact` 的两点区别，都是刻意的：
+   *  - **没有冷却**：冷却是「免费动作」的节流手段，消耗品已经用钱节流过了；
+   *  - **不吃每日上限**：`exp` 走 `dailyCap` 的话，玩家花钱买的蛋糕会在上限用满后
+   *    静默失效——花了钱没效果是最难解释的一类问题。上限是为了压制免费产出，
+   *    对付费道具不适用。
+   *
+   * 调用方已持有 `pet:{userId}` 锁，故这里**不再抢锁**（Redis 锁不可重入，
+   * 再抢一次就是自死锁）。
+   */
+  async applyConsumable(
+    userId: string,
+    effect: {
+      hunger?: number;
+      cleanliness?: number;
+      mood?: number;
+      stamina?: number;
+      exp?: number;
+    },
+    petId?: string,
+  ): Promise<{ pet: PetStateView; levelUp: boolean }> {
+    const t = await this.tuning();
+    const pet = await this.resolveExistingPet(userId, petId);
+    const now = this.clock.now();
+    const cur = this.settle(
+      pet,
+      now,
+      await this.comfortFactor(userId, t.comfort),
+      t,
+    );
+
+    const exp = cur.exp + (effect.exp ?? 0);
+    const levelBefore = this.levelOf(cur.exp, t.growth).level;
+    const progress = this.levelOf(exp, t.growth);
+    const staminaMax = this.staminaMaxOf(progress.level, t.attrs);
+
+    pet.hunger = this.clampStat(cur.hunger + (effect.hunger ?? 0));
+    pet.cleanliness = this.clampStat(
+      cur.cleanliness + (effect.cleanliness ?? 0),
+    );
+    pet.mood = this.clampStat(cur.mood + (effect.mood ?? 0));
+    pet.stamina = this.clamp(
+      cur.stamina + (effect.stamina ?? 0),
+      0,
+      staminaMax,
+    );
+    pet.intimacy = cur.intimacy;
+    pet.exp = exp;
+    pet.level = progress.level;
+    pet.lastSeenAt = now;
+
+    const saved = await this.pets.save(pet);
+    return {
+      pet: this.toView(saved, this.snapshot(saved), t),
+      levelUp: progress.level > levelBefore,
+    };
+  }
+
   /** 清除某宠全部互动冷却（加速道具/付费后调用）。返回清除条数。 */
   async clearCooldowns(
     userId: string,
@@ -542,6 +616,7 @@ export class PetService {
       endurance: view.endurance,
       stamina: view.stamina,
       staminaMax: view.staminaMax,
+      mood: view.mood,
     };
   }
 
@@ -590,6 +665,7 @@ export class PetService {
         endurance: view.endurance,
         stamina: view.stamina,
         staminaMax: view.staminaMax,
+        mood: view.mood,
       };
     });
   }
@@ -622,13 +698,7 @@ export class PetService {
    * 离线收益预览（只读）：按 offline_base_at 到 now 的时长（封顶 maxHours）
    * 与出战宠等级换算可领游戏币。base 缺省回退 last_seen_at → created_at。
    */
-  async offlinePreview(userId: string): Promise<{
-    elapsedSec: number;
-    cappedSec: number;
-    maxHours: number;
-    coinPerHour: number;
-    claimableCoin: number;
-  }> {
+  async offlinePreview(userId: string): Promise<OfflineView> {
     const t = await this.tuning();
     const now = this.clock.now();
     const user = await this.users.findOne({ where: { id: userId } });
@@ -638,6 +708,7 @@ export class PetService {
       now,
       await this.activeLevel(userId, t.growth),
       t.offline,
+      await this.comfortFactor(userId, t.comfort),
     );
   }
 
@@ -658,6 +729,7 @@ export class PetService {
         now,
         await this.activeLevel(userId, t.growth),
         t.offline,
+        await this.comfortFactor(userId, t.comfort),
       );
       if (claimableCoin < 1) {
         throw new BadRequestException('暂无可领取的离线收益');
@@ -695,13 +767,8 @@ export class PetService {
     now: Date,
     level: number,
     cfg: PetOffline,
-  ): {
-    elapsedSec: number;
-    cappedSec: number;
-    maxHours: number;
-    coinPerHour: number;
-    claimableCoin: number;
-  } {
+    comfortFactor: number,
+  ): OfflineView {
     const base = user.offlineBaseAt ?? user.lastSeenAt ?? user.createdAt;
     const elapsedMs = Math.max(0, now.getTime() - new Date(base).getTime());
     const capMs = cfg.maxHours * 3_600_000;
@@ -709,7 +776,9 @@ export class PetService {
     const cappedH = cappedMs / 3_600_000;
 
     // 出战宠等级对时薪的小幅加成（level=1 无加成）
-    const coinPerHour = cfg.coinPerHour * (1 + (level - 1) * cfg.perLevelBonus);
+    const levelHourly = cfg.coinPerHour * (1 + (level - 1) * cfg.perLevelBonus);
+    // 家园舒适度加成：与心情衰减减免同一个系数，上限即 pet.comfort.factorCap
+    const coinPerHour = levelHourly * (1 + comfortFactor);
     const claimableCoin = Math.floor(cappedH * coinPerHour);
 
     return {
@@ -717,6 +786,7 @@ export class PetService {
       cappedSec: Math.floor(cappedMs / 1000),
       maxHours: cfg.maxHours,
       coinPerHour: Math.round(coinPerHour * 10) / 10,
+      comfortFactor: Math.round(comfortFactor * 100) / 100,
       claimableCoin,
     };
   }

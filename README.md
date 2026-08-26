@@ -41,6 +41,7 @@
 - `src/entities/*.entity.ts`：所有实体（CLI DataSource 用 glob 登记，**新增实体禁止只登记到 `app.module.ts`**，否则 `migration:generate` 会把该表当「多余表」生成 `DROP TABLE`）。
 - `src/migrations/*.ts`：迁移文件（当前 12 条）。
 - `src/common`：基础设施三件套（`ClockService` / `LockService` / `IdempotencyInterceptor`，全局）。
+- `scripts/dev/*.ts`：联调数据工具（播种 / 清理 / 清档），用 `ts-node -T -P scripts/tsconfig.json` 跑。
 - `admin-web/`：运营后台前端（独立 pnpm 工程，`pnpm build` 产物挂 `/console`）。
 - `docs/`：项目文档（宠物功能详细规格 / 待办执行清单）。
 
@@ -53,6 +54,7 @@
 - `REDIS_URL`
 - `JWT_SECRET` / `JWT_EXPIRES_IN`
 - `WECHAT_APPID` / `WECHAT_SECRET`
+- `WECHAT_MOCK_LOGIN`（联调假登录开关，见「联调自测数据」；生产为 `true` 会拒绝启动）
 
 ## 常用命令
 
@@ -82,6 +84,38 @@ npm run test:cov       # 覆盖率
 ```
 
 > 迁移生成后**必读一遍 SQL**，确认没有意外的 `DROP`。
+
+## 联调自测数据
+
+没有微信客户端也能把后端跑通，靠「假登录 + 种子玩家 + 一键清理」三件套。
+
+**开关**：`.env` 设 `WECHAT_MOCK_LOGIN=true`。此后 `POST /auth/login` 传 `{"code":"mock:<tag>"}`
+即跳过微信校验直接签发 JWT，openid 固定为 `mock_openid_<tag>`，同一 tag 永远映射同一个玩家。
+不带 `mock:` 前缀的真 code 照常走微信，可在同一环境混合联调。
+
+生产环境双重封死：`NODE_ENV=production` 时 Joi 校验直接**拒绝启动**，配置层再把该值强制算作 `false`。
+
+```bash
+# 造 3 个不同进度的测试玩家（幂等，可反复跑）
+npm run seed:dev
+#   mock:newbie   Lv1  空钱包    —— 新手引导 / 首次互动
+#   mock:mid      Lv8  5000 币   —— 换装 / 家园 / 赛跑 / 签到
+#   mock:veteran  Lv30 5 万币    —— 兑换实物 / 履约 / 图鉴
+
+# 清掉全部假登录玩家及其关联数据
+npm run clean:dev              # 预演，只报数
+npm run clean:dev -- --yes     # 真删
+
+# 上线前清档：删除全部玩家，保留后台账号与配置表
+npm run wipe:pre-launch                  # 预演
+npm run wipe:pre-launch -- --execute     # 真删（需手输「确认清档」）
+```
+
+三个脚本都在 `NODE_ENV=production` 下直接拒绝运行。清理不写死表名，
+运行时从 `pg_constraint` 反查外键依赖递归删除，新增业务表自动纳入范围，不会留孤儿数据。
+
+发币一律走 `EconomyService.apply` 并使用稳定 `bizId`，所以重复播种命中幂等回放，
+不会把余额翻倍，也不会造出「有余额无流水」的脏账。
 
 ## 部署
 

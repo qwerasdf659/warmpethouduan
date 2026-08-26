@@ -5,11 +5,12 @@ import { Ledger } from '../entities/ledger.entity';
 import { Wallet } from '../entities/wallet.entity';
 import { EconomyController } from './economy.controller';
 import { EconomyService } from './economy.service';
+import { ReconcileService } from './reconcile.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Wallet, Ledger]), AuthModule],
   controllers: [EconomyController],
-  providers: [EconomyService],
-  exports: [EconomyService],
+  providers: [EconomyService, ReconcileService],
+  exports: [EconomyService, ReconcileService],
 })
 export class EconomyModule {}

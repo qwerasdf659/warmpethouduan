@@ -147,6 +147,32 @@ export interface WalletView {
   marketingPoint: number;
 }
 
+/** 对账报告：余额与流水累计的一致性检查结果。 */
+export interface ReconcileReport {
+  checkedAt: string;
+  walletCount: number;
+  mismatches: {
+    userId: string;
+    pool: 'game' | 'marketing';
+    wallet: number;
+    ledgerSum: number;
+    diff: number;
+  }[];
+  negatives: { userId: string; pool: 'game' | 'marketing'; amount: number }[];
+  orphanLedgerUsers: string[];
+  ok: boolean;
+}
+
+/** 幂等记录（Redis 里的 idem:{userId}:{bizId}）。 */
+export interface IdempotencyRecord {
+  key: string;
+  userId: string;
+  bizId: string;
+  status: 'pending' | 'done';
+  ttlSec: number;
+  result: unknown;
+}
+
 export interface LedgerEntry {
   id: string;
   userId: string;
@@ -189,12 +215,16 @@ export interface ItemDefView {
 }
 
 export interface GameConfigView {
-  id: string;
   key: string;
   description: string;
   value: unknown;
-  createdAt: string;
   updatedAt: string;
+  /** 是否为代码注册过的可调项。false = 历史遗留 key，玩法不读它 */
+  registered: boolean;
+  /** 代码内置默认值（未注册项为 null） */
+  default: unknown;
+  /** 当前值是否已偏离默认值 */
+  modified: boolean;
 }
 
 export interface RedeemOrderView {
@@ -214,7 +244,53 @@ export interface RedeemOrderView {
     detail: string;
   } | null;
   trackingNo: string | null;
+  /** 发货时间（独立落列，不受改备注/补单号影响） */
+  shippedAt: string | null;
+  /** 取消退款时间 */
+  cancelledAt: string | null;
   remark: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// ------------------------------------------------------------------ 兑换码
+
+export interface PromoCodeView {
+  id: string;
+  code: string;
+  batch: string;
+  pool: 'game' | 'marketing';
+  amount: number;
+  maxUses: number;
+  usedCount: number;
+  expiresAt: string | null;
+  enabled: boolean;
+  remark: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * 批次汇总。`usedUses`（占用次数）与 `redemptions`（核销行数）分开列：
+ * 两者正常应相等，不等说明有「占了次数但入账失败」的记录，需要人工看一眼。
+ */
+export interface PromoBatchSummary {
+  batch: string;
+  pool: string;
+  codes: number;
+  totalUses: number;
+  usedUses: number;
+  redemptions: number;
+  enabledCodes: number;
+  createdAt: string;
+}
+
+export interface PromoRedemptionView {
+  id: string;
+  userId: string;
+  code: string;
+  batch: string;
+  pool: 'game' | 'marketing';
+  amount: number;
+  createdAt: string;
 }

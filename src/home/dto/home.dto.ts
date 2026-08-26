@@ -29,18 +29,22 @@ export class PlaceFurnitureDto {
   @MaxLength(48)
   itemKey: string;
 
+  /**
+   * 网格坐标（0 起，左上角）。省略则由服务端自动找空位。
+   * 这里的上界只是防脏数据，真正的边界按 `home.grid` 配置在 Service 里判。
+   */
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  @Max(10000)
+  @Max(63)
   posX?: number;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  @Max(10000)
+  @Max(63)
   posY?: number;
 }
 

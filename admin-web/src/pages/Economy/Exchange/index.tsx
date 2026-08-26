@@ -67,11 +67,40 @@ export default function ExchangePage() {
     },
     { title: '物流单号', dataIndex: 'trackingNo', hideInSearch: true, render: (v) => (v as string) ?? '-' },
     {
-      title: '时间',
+      title: '下单时间',
       dataIndex: 'createdAt',
       valueType: 'dateTime',
       width: 170,
       hideInSearch: true,
+    },
+    {
+      // 履约时间独立落列，不是 updatedAt——后者会被补单号/改备注刷新，算时效会偏短
+      title: '履约时间',
+      dataIndex: 'shippedAt',
+      width: 170,
+      hideInSearch: true,
+      render: (_, r) => {
+        const at = r.status === 'cancelled' ? r.cancelledAt : r.shippedAt;
+        if (!at) return '-';
+        const label = r.status === 'cancelled' ? '取消' : '发货';
+        return `${label} ${new Date(at).toLocaleString('zh-CN')}`;
+      },
+    },
+    {
+      title: '履约耗时',
+      dataIndex: 'id',
+      width: 110,
+      hideInSearch: true,
+      render: (_, r) => {
+        const at = r.status === 'cancelled' ? r.cancelledAt : r.shippedAt;
+        if (!at) return '-';
+        const ms = new Date(at).getTime() - new Date(r.createdAt).getTime();
+        if (ms < 0) return '-';
+        const hours = ms / 3_600_000;
+        return hours < 1
+          ? `${Math.round(ms / 60_000)} 分钟`
+          : `${hours.toFixed(1)} 小时`;
+      },
     },
     {
       title: '操作',

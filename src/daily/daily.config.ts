@@ -19,9 +19,19 @@ export interface CheckinConfig {
 /**
  * 进度来源。这是**结构性**取值：每个值对应一条具体的统计实现
  *（Redis 计数器 key 或签到状态），新增来源必须同时改代码，
- * 故不开放给运营自由填写，只在 schema 里限定为已实现的三种。
+ * 故不开放给运营自由填写，只在 schema 里限定为已实现的这几种。
+ *
+ * `act` 任意互动次数 / `play` 陪玩次数 / `checkin` 当日是否签到 /
+ * `race` 完成赛跑场数（在 `RaceService.settle` 结算时打点）。
  */
-export type DailyTaskSource = 'act' | 'play' | 'checkin';
+export type DailyTaskSource = 'act' | 'play' | 'checkin' | 'race';
+
+export const DAILY_TASK_SOURCES: DailyTaskSource[] = [
+  'act',
+  'play',
+  'checkin',
+  'race',
+];
 
 export interface DailyTaskConfig {
   key: string;
@@ -63,6 +73,13 @@ const DEFAULT_TASKS: DailyTaskConfig[] = [
     coin: 20,
     source: 'play',
   },
+  {
+    key: 'race',
+    name: '完成 1 场赛跑',
+    target: 1,
+    coin: 25,
+    source: 'race',
+  },
 ];
 
 // ------------------------------------------------------------------ 配置项
@@ -85,7 +102,7 @@ export const DAILY_CONFIG = {
 
   'daily.tasks': defineConfig<DailyTaskConfig[]>({
     description:
-      '每日任务列表：进度来源限 act(互动次数)/play(陪玩)/checkin(签到)',
+      '每日任务列表：进度来源限 act(互动次数)/play(陪玩)/checkin(签到)/race(赛跑场数)',
     default: DEFAULT_TASKS,
     schema: Joi.array()
       .min(1)
@@ -95,7 +112,9 @@ export const DAILY_CONFIG = {
           name: Joi.string().max(64).required(),
           target: posInt.required(),
           coin: nonNegInt.required(),
-          source: Joi.string().valid('act', 'play', 'checkin').required(),
+          source: Joi.string()
+            .valid(...DAILY_TASK_SOURCES)
+            .required(),
         }),
       )
       .required(),

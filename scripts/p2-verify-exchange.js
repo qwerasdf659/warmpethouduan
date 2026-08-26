@@ -135,7 +135,7 @@ async function main() {
       '第二次返回同一张订单（幂等回放）',
     );
 
-    // ---- C. 无库存上限：积分足够即可反复兑同一实物
+    // ---- C. 不限量项（stock=null、perUserLimit=null）：积分足够就该一直兑得动
     const many = 5;
     await c.query(`update wallet set marketing_point=$2 where user_id=$1`, [
       userId,
@@ -156,7 +156,8 @@ async function main() {
       [userId, ITEM],
     );
     console.log(
-      `\n[C] 同一兑换项累计订单数 = ${o3.rows[0].n}（无任何库存/限购拦截）`,
+      `\n[C] 不限量项累计订单数 = ${o3.rows[0].n}（该项配置为不限量，不该被拦）` +
+        `\n    限量项的库存与限购见 scripts/p2-verify-stock.js`,
     );
 
     // ---- 流水与余额一致性

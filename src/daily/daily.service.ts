@@ -216,8 +216,12 @@ export class DailyService {
       (await this.redis.get(`act:${userId}:${day}:play`)) ?? '0',
       10,
     );
+    const race = parseInt(
+      (await this.redis.get(`act:${userId}:${day}:race`)) ?? '0',
+      10,
+    );
     const checkin = row?.lastCheckinDay === day ? 1 : 0;
-    return { act, play, checkin };
+    return { act, play, race, checkin };
   }
 
   private toView(

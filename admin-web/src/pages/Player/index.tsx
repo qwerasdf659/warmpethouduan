@@ -5,12 +5,13 @@ import {
   ProForm,
   ProFormDigit,
   ProFormRadio,
+  ProFormSelect,
   ProFormTextArea,
   ProTable,
 } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useAccess } from '@umijs/max';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Button,
   Drawer,
@@ -25,10 +26,18 @@ import {
   adjustPet,
   banPlayer,
   getPlayerDetail,
+  grantItem,
+  listGrantableItems,
   listPlayers,
   unbanPlayer,
 } from '@/services/player';
-import type { PetStateView, PlayerDetail, PlayerView } from '@/types';
+import { getPlayerWallet } from '@/services/wallet';
+import type {
+  PetStateView,
+  PlayerDetail,
+  PlayerView,
+  WalletView,
+} from '@/types';
 
 export default function PlayerPage() {
   const access = useAccess();
@@ -139,6 +148,59 @@ export default function PlayerPage() {
             );
           }
         }
+        if (access.canGrantItem) {
+          actions.push(
+            <ModalForm
+              key="grant"
+              title={`补发物品 · 玩家 #${record.id}`}
+              width={460}
+              trigger={<a>补发物品</a>}
+              modalProps={{ destroyOnClose: true }}
+              onFinish={async (v: {
+                itemKey: string;
+                qty?: number;
+                reason?: string;
+              }) => {
+                const res = await grantItem(record.id, v);
+                // 幂等只到 24h 请求窗口，反馈里带上发放后的持有量，
+                // 让运营能自己确认是否已经发过，而不是不确定就再点一次
+                message.success(
+                  `已补发 ${res.granted} 件，${res.itemKey} 当前持有 ${res.qty} 件`,
+                );
+                return true;
+              }}
+            >
+              <ProFormSelect
+                name="itemKey"
+                label="物品"
+                rules={[{ required: true, message: '请选择要补发的物品' }]}
+                showSearch
+                placeholder="按名称或 key 搜索"
+                request={async () => {
+                  const res = await listGrantableItems();
+                  return res.list.map((i) => ({
+                    label: `${i.name}（${i.key}${i.slot ? ` · ${i.slot}` : ''}）`,
+                    value: i.key,
+                  }));
+                }}
+              />
+              <ProFormDigit
+                name="qty"
+                label="数量"
+                initialValue={1}
+                min={1}
+                max={99}
+                fieldProps={{ precision: 0 }}
+              />
+              <ProFormTextArea
+                name="reason"
+                label="补发原因"
+                placeholder="选填，将记入审计"
+                fieldProps={{ maxLength: 255, showCount: true }}
+              />
+            </ModalForm>,
+          );
+        }
         return actions;
       },
     },
@@ -199,12 +261,25 @@ export default function PlayerPage() {
                   render: (v) => (v as string) ?? '-',
                 },
                 {
+                  title: '封禁时间',
+                  dataIndex: 'bannedAt',
+                  render: (v) =>
+                    v ? new Date(v as string).toLocaleString() : '-',
+                },
+                {
+                  title: '最近活跃',
+                  dataIndex: 'lastSeenAt',
+                  render: (v) =>
+                    v ? new Date(v as string).toLocaleString() : '-',
+                },
+                {
                   title: '注册时间',
                   dataIndex: 'createdAt',
                   valueType: 'dateTime',
                 },
               ]}
             />
+            <WalletCard playerId={detail.player.id} />
             {detail.pets.length > 0 ? (
               detail.pets.map((pet) => (
                 <PetCard
@@ -224,6 +299,50 @@ export default function PlayerPage() {
         )}
       </Drawer>
     </PageContainer>
+  );
+}
+
+/**
+ * 钱包余额卡片。单独取数而不并进玩家详情：钱包是经济域的读，
+ * 权限也归 wallet:read —— 只有 player:read 的客服看不到金额。
+ */
+function WalletCard({ playerId }: { playerId: string }) {
+  const access = useAccess();
+  const [wallet, setWallet] = useState<WalletView | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!access.canReadWallet) return;
+    let alive = true;
+    setLoading(true);
+    setFailed(false);
+    getPlayerWallet(playerId)
+      .then((res) => {
+        if (alive) setWallet(res.wallet);
+      })
+      .catch(() => {
+        if (alive) setFailed(true);
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [playerId, access.canReadWallet]);
+
+  if (!access.canReadWallet) return null;
+
+  return (
+    <ProDescriptions title="钱包" column={2} loading={loading}>
+      <ProDescriptions.Item label="游戏币">
+        {failed ? '读取失败' : (wallet?.gameCoin ?? '-')}
+      </ProDescriptions.Item>
+      <ProDescriptions.Item label="营销积分">
+        {failed ? '读取失败' : (wallet?.marketingPoint ?? '-')}
+      </ProDescriptions.Item>
+    </ProDescriptions>
   );
 }
 

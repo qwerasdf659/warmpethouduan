@@ -12,6 +12,13 @@ import { ItemDef } from '../entities/item-def.entity';
 import { HomeLayout } from '../entities/home-layout.entity';
 import { HomeStat } from '../entities/home-stat.entity';
 import { ItemsService } from '../items/items.service';
+import {
+  HomeGrid,
+  Rect,
+  findFreeSpot,
+  insideGrid,
+  overlaps,
+} from './home.config';
 
 const HOME_TYPES = ['furniture'];
 
@@ -22,11 +29,16 @@ export interface PlacedView {
   comfort: number;
   posX: number;
   posY: number;
+  /** 占格宽高，前端按此渲染并做拖拽吸附 */
+  gridW: number;
+  gridH: number;
 }
 
 export interface HomeView {
   comfort: number;
   comfortFactor: number;
+  /** 房间网格尺寸，摆放坐标必须落在其中 */
+  grid: HomeGrid;
   items: {
     key: string;
     name: string;
@@ -35,6 +47,8 @@ export interface HomeView {
     comfort: number;
     owned: number;
     placed: number;
+    gridW: number;
+    gridH: number;
   }[];
   placed: PlacedView[];
 }
@@ -86,6 +100,7 @@ export class HomeService {
         comfort,
         await this.config.get('pet.comfort'),
       ),
+      grid: await this.config.get('home.grid'),
       items: defs.map((d) => ({
         key: d.key,
         name: d.name,
@@ -94,6 +109,8 @@ export class HomeService {
         comfort: d.comfort,
         owned: ownedIds.get(d.id) ?? 0,
         placed: placedCount.get(d.id) ?? 0,
+        gridW: d.gridW,
+        gridH: d.gridH,
       })),
       placed: layouts.map((l) => {
         const d = idToDef.get(l.itemDefId);
@@ -104,6 +121,8 @@ export class HomeService {
           comfort: d?.comfort ?? 0,
           posX: l.posX,
           posY: l.posY,
+          gridW: d?.gridW ?? 1,
+          gridH: d?.gridH ?? 1,
         };
       }),
     };
@@ -118,30 +137,44 @@ export class HomeService {
     return this.items.buy(userId, itemKey, bizId);
   }
 
-  /** 摆放一件家具（受背包 qty 约束），并累加舒适度。 */
+  /**
+   * 摆放一件家具（受背包 qty 约束），并累加舒适度。
+   *
+   * 坐标可省略：不传就自动找第一个放得下的空位。传了就必须**完整落在网格内**
+   * 且**不与已摆放家具重叠**——否则前端做布局时会出现家具叠在一起或飘到房间外，
+   * 而这种脏数据一旦落库就只能靠人工清理。
+   */
   async place(
     userId: string,
     itemKey: string,
-    posX = 0,
-    posY = 0,
+    posX?: number,
+    posY?: number,
   ): Promise<HomeView> {
     const def = await this.items.getDefByKey(itemKey);
     if (!def || def.type !== 'furniture') {
       throw new BadRequestException('该物品不是家具');
     }
+    const grid = await this.config.get('home.grid');
 
     return this.lock.withLock(`pet:${userId}`, async () => {
       const ownedMap = await this.items.ownedMap(userId);
       const ownedQty = ownedMap.get(def.id) ?? 0;
-      const placedQty = await this.layouts.count({
-        where: { userId, itemDefId: def.id },
-      });
+      const existing = await this.layouts.find({ where: { userId } });
+      const placedQty = existing.filter((l) => l.itemDefId === def.id).length;
       if (placedQty >= ownedQty) {
         throw new BadRequestException('可摆放数量不足，请先购买');
       }
 
+      const occupied = await this.occupiedRects(existing);
+      const spot = this.resolveSpot(def, occupied, grid, posX, posY);
+
       await this.layouts.save(
-        this.layouts.create({ userId, itemDefId: def.id, posX, posY }),
+        this.layouts.create({
+          userId,
+          itemDefId: def.id,
+          posX: spot.x,
+          posY: spot.y,
+        }),
       );
       await this.addComfort(userId, def.comfort);
       return this.getHome(userId);
@@ -163,6 +196,47 @@ export class HomeService {
   }
 
   // ---------------------------------------------------------------- 内部
+
+  /** 已摆放家具占用的矩形（下架家具按 1×1 保守处理）。 */
+  private async occupiedRects(layouts: HomeLayout[]): Promise<Rect[]> {
+    if (!layouts.length) return [];
+    const ids = [...new Set(layouts.map((l) => l.itemDefId))];
+    const defs = await this.defs.find({ where: { id: In(ids) } });
+    const sizeOf = new Map(defs.map((d) => [d.id, { w: d.gridW, h: d.gridH }]));
+    return layouts.map((l) => {
+      const s = sizeOf.get(l.itemDefId) ?? { w: 1, h: 1 };
+      return { x: l.posX, y: l.posY, w: s.w, h: s.h };
+    });
+  }
+
+  /** 定位摆放坐标：显式坐标做校验，省略坐标则自动寻空位。 */
+  private resolveSpot(
+    def: ItemDef,
+    occupied: Rect[],
+    grid: HomeGrid,
+    posX?: number,
+    posY?: number,
+  ): { x: number; y: number } {
+    const w = Math.max(1, def.gridW);
+    const h = Math.max(1, def.gridH);
+
+    if (posX === undefined || posY === undefined) {
+      const spot = findFreeSpot(w, h, occupied, grid);
+      if (!spot) throw new BadRequestException('房间已摆满，请先收纳部分家具');
+      return spot;
+    }
+
+    const rect: Rect = { x: posX, y: posY, w, h };
+    if (!insideGrid(rect, grid)) {
+      throw new BadRequestException(
+        `摆放位置超出房间范围（房间 ${grid.width}×${grid.height}，该家具占 ${w}×${h}）`,
+      );
+    }
+    if (occupied.some((r) => overlaps(rect, r))) {
+      throw new BadRequestException('该位置已有家具，请换个位置');
+    }
+    return { x: posX, y: posY };
+  }
 
   private async readComfort(userId: string): Promise<number> {
     const stat = await this.stats.findOne({ where: { userId } });
