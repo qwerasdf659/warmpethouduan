@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { LockService } from '../common/lock/lock.service';
+import { BUSINESS_TZ } from '../common/time/business-day';
 import { MarketService } from './market.service';
-import { TradeRiskService } from './trade-risk.service';
+import { TradeRiskService } from '../trading/trade-risk.service';
 
 /**
  * 市场定时作业：超时挂单处理与竞价结算。
@@ -24,7 +25,7 @@ export class MarketSettleService {
     private readonly lock: LockService,
   ) {}
 
-  @Cron('*/5 * * * *', { name: 'market-settle', timeZone: 'Asia/Shanghai' })
+  @Cron('*/5 * * * *', { name: 'market-settle', timeZone: BUSINESS_TZ })
   async settleExpired(): Promise<void> {
     if ((process.env.NODE_APP_INSTANCE ?? '0') !== '0') return;
 
@@ -62,7 +63,7 @@ export class MarketSettleService {
    * 只告警不处置：「A 长期只送 B」高度可疑但不构成证据 —— 情侣号、师徒关系
    * 都是这个形状。自动封号会误伤，所以这里的产出是一份人工复核清单。
    */
-  @Cron('20 4 * * *', { name: 'market-netflow', timeZone: 'Asia/Shanghai' })
+  @Cron('20 4 * * *', { name: 'market-netflow', timeZone: BUSINESS_TZ })
   async netFlowReport(): Promise<void> {
     if ((process.env.NODE_APP_INSTANCE ?? '0') !== '0') return;
 

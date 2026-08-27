@@ -89,6 +89,69 @@ export interface PetComfort {
   max: number;
 }
 
+// ---------------------------------------------------------------- P10 性格特质
+
+/**
+ * 特质效果：只允许收益类与衰减类倍率增量，**绝不含 speed/endurance**
+ *（三围只由等级决定，性格影响赛跑等于把赛跑变成抽卡）。
+ */
+export interface PetTraitEffects {
+  feedGain?: number;
+  petGain?: number;
+  playGain?: number;
+  hungerDecay?: number;
+  cleanDecay?: number;
+  moodDecay?: number;
+  staminaRecover?: number;
+}
+
+export interface PetTraitDef {
+  key: string;
+  name: string;
+  desc: string;
+  /** 出生随机分配的权重 */
+  weight: number;
+  effects: PetTraitEffects;
+}
+
+export interface PetTraitCount {
+  min: number;
+  max: number;
+}
+
+// ---------------------------------------------------------------- P1 疾病
+
+export type PetConditionSource = 'hunger' | 'cleanliness' | 'mood';
+
+/** 病症减益：只降收益，键与特质/Petpet 加成同构，进同一聚合层。 */
+export interface PetConditionEffects {
+  offlineRate?: number;
+  intimacyGain?: number;
+  raceScore?: number;
+}
+
+export interface PetConditionDef {
+  key: string;
+  name: string;
+  desc: string;
+  /** 观察哪个属性归零 */
+  source: PetConditionSource;
+  /** 归零满多少小时即触发 */
+  thresholdHours: number;
+  effects: PetConditionEffects;
+}
+
+export interface PetCureConfig {
+  /** 用药治疗消耗的道具 code */
+  itemKey: string;
+  /** 看诊治全部所需游戏币 */
+  clinicCost: number;
+  /** 自愈所需属性回升阈值 */
+  selfHealStat: number;
+  /** 自愈需维持的小时数 */
+  selfHealHours: number;
+}
+
 // ------------------------------------------------------------------ 默认值
 
 const DEFAULT_RATES: PetRates = {
@@ -149,9 +212,84 @@ const DEFAULT_OFFLINE: PetOffline = {
 
 const DEFAULT_COMFORT: PetComfort = { factorCap: 0.3, max: 100 };
 
+const DEFAULT_TRAITS: PetTraitDef[] = [
+  {
+    key: 'lively',
+    name: '活泼',
+    desc: '陪玩收益提升',
+    weight: 10,
+    effects: { playGain: 0.15 },
+  },
+  {
+    key: 'timid',
+    name: '胆小',
+    desc: '心情衰减更快',
+    weight: 10,
+    effects: { moodDecay: 0.2 },
+  },
+  {
+    key: 'greedy',
+    name: '贪吃',
+    desc: '喂食收益提升，但更易饿',
+    weight: 10,
+    effects: { feedGain: 0.2, hungerDecay: 0.15 },
+  },
+  {
+    key: 'aloof',
+    name: '高冷',
+    desc: '抚摸收益下降',
+    weight: 8,
+    effects: { petGain: -0.1 },
+  },
+  {
+    key: 'clean',
+    name: '爱干净',
+    desc: '清洁衰减更慢',
+    weight: 8,
+    effects: { cleanDecay: -0.2 },
+  },
+  {
+    key: 'sleepy',
+    name: '嗜睡',
+    desc: '体力恢复更快',
+    weight: 8,
+    effects: { staminaRecover: 0.2 },
+  },
+];
+
+const DEFAULT_CONDITIONS: PetConditionDef[] = [
+  {
+    key: 'hungry_weak',
+    name: '营养不良',
+    desc: '饱食长期为 0 导致，离线时薪下降',
+    source: 'hunger',
+    thresholdHours: 12,
+    effects: { offlineRate: -0.3 },
+  },
+  {
+    key: 'dirty_flea',
+    name: '跳蚤',
+    desc: '清洁长期为 0 导致，亲密收益减半',
+    source: 'cleanliness',
+    thresholdHours: 12,
+    effects: { intimacyGain: -0.5 },
+  },
+  {
+    key: 'low_mood',
+    name: '抑郁',
+    desc: '心情长期为 0 导致，赛跑成绩下降',
+    source: 'mood',
+    thresholdHours: 24,
+    effects: { raceScore: -0.1 },
+  },
+];
+
 // ------------------------------------------------------------------ 校验规则
 
 const statDelta = Joi.number().integer().min(-STAT_MAX).max(STAT_MAX);
+
+/** 倍率增量：允许负（减益），上界 10 防误填。用于特质/病症 effects。 */
+const traitRate = Joi.number().min(-1).max(10);
 
 const actionSchema = strictObject({
   effects: strictObject({
@@ -270,6 +408,81 @@ export const PET_CONFIG = {
       // 减免达到 1 会让心情永不衰减
       factorCap: Joi.number().min(0).max(0.9).required(),
       max: posInt.required(),
+    }),
+  }),
+
+  'pet.traits': defineConfig<PetTraitDef[]>({
+    description:
+      '性格特质目录：出生随机分配 trait_count 个，终身不变。effects 只作用于收益与衰减，绝不碰 speed/endurance',
+    default: DEFAULT_TRAITS,
+    schema: Joi.array()
+      .items(
+        strictObject({
+          key: Joi.string().max(24).required(),
+          name: Joi.string().max(16).required(),
+          desc: Joi.string().max(64).required(),
+          weight: posInt.required(),
+          effects: strictObject({
+            feedGain: traitRate.optional(),
+            petGain: traitRate.optional(),
+            playGain: traitRate.optional(),
+            hungerDecay: traitRate.optional(),
+            cleanDecay: traitRate.optional(),
+            moodDecay: traitRate.optional(),
+            staminaRecover: traitRate.optional(),
+          }),
+        }),
+      )
+      .required(),
+  }),
+
+  'pet.trait_count': defineConfig<PetTraitCount>({
+    description: '出生随机分配的特质数量区间（含端点）',
+    default: { min: 1, max: 2 },
+    schema: strictObject({
+      min: nonNegInt.max(10).required(),
+      max: posInt.max(10).required(),
+    }),
+  }),
+
+  'pet.conditions': defineConfig<PetConditionDef[]>({
+    description:
+      '病症目录：source 指定观察哪个属性，归零满 thresholdHours 即触发。effects 只降收益',
+    default: DEFAULT_CONDITIONS,
+    schema: Joi.array()
+      .items(
+        strictObject({
+          key: Joi.string().max(32).required(),
+          name: Joi.string().max(16).required(),
+          desc: Joi.string().max(64).required(),
+          source: Joi.string()
+            .valid('hunger', 'cleanliness', 'mood')
+            .required(),
+          thresholdHours: posInt.max(8760).required(),
+          effects: strictObject({
+            offlineRate: traitRate.optional(),
+            intimacyGain: traitRate.optional(),
+            raceScore: traitRate.optional(),
+          }),
+        }),
+      )
+      .required(),
+  }),
+
+  'pet.cure': defineConfig<PetCureConfig>({
+    description:
+      '治疗方式：用药消耗道具治一种，看诊花币治全部，自愈需属性回升并维持',
+    default: {
+      itemKey: 'cons_medicine',
+      clinicCost: 200,
+      selfHealStat: 60,
+      selfHealHours: 6,
+    },
+    schema: strictObject({
+      itemKey: Joi.string().max(48).required(),
+      clinicCost: nonNegInt.max(1_000_000).required(),
+      selfHealStat: nonNegInt.max(100).required(),
+      selfHealHours: posInt.max(8760).required(),
     }),
   }),
 };

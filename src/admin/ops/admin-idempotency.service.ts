@@ -1,8 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import Redis from 'ioredis';
+import {
+  IDEMPOTENCY_ADMIN_SCOPE,
+  IDEMPOTENCY_PENDING as PENDING,
+} from '../../common/idempotency/idempotency.keys';
 import { REDIS_CLIENT } from '../../redis/redis.module';
 
-const PENDING = '__PENDING__';
 const SCAN_MAX = 500;
 
 export interface IdempotencyRecord {
@@ -16,8 +19,12 @@ export interface IdempotencyRecord {
 }
 
 /**
- * 幂等记录查询（只读）。幂等落在 Redis：key = idem:{userId}:{bizId}，
- * 值为 '__PENDING__'（处理中）或上次成功结果的 JSON。仅供后台排查用。
+ * 幂等记录查询（只读）。幂等落在 Redis，值为 `IDEMPOTENCY_PENDING`（处理中）
+ * 或上次成功结果的 JSON。仅供后台排查用。
+ *
+ * key 有两种命名空间：玩家 `idem:{userId}:{bizId}`、后台
+ * `idem:admin:{adminUserId}:{bizId}`。查后台记录时把 `userId` 传成
+ * `admin:{adminUserId}` 即可，两者拼出来的 key 形状一致。
  */
 @Injectable()
 export class AdminIdempotencyService {
@@ -28,10 +35,13 @@ export class AdminIdempotencyService {
     raw: string | null,
     ttl: number,
   ): IdempotencyRecord {
-    // key 形如 idem:{userId}:{bizId}，userId/bizId 本身不含冒号约束由业务保证
+    // key 形如 idem:{userId}:{bizId} 或 idem:admin:{adminUserId}:{bizId}，
+    // userId/bizId 本身不含冒号的约束由业务保证
     const parts = key.split(':');
-    const userId = parts[1] ?? '';
-    const bizId = parts.slice(2).join(':');
+    const isAdmin = parts[1] === IDEMPOTENCY_ADMIN_SCOPE;
+    const idEnd = isAdmin ? 3 : 2;
+    const userId = parts.slice(1, idEnd).join(':');
+    const bizId = parts.slice(idEnd).join(':');
     const pending = raw === PENDING || raw === null;
     let result: unknown = null;
     if (!pending && raw) {

@@ -15,7 +15,7 @@ import {
  *
  * 关键设计是**按到期日归并**，而不是每次发行建一个批次。这让「不启用过期」的
  * 成本归零：`game_coin` 配 `expireDays = NULL`，于是每玩家恒为 1 行，
- * 读写代价与旧 `wallet` 相同。
+ * 读写代价与一张普通余额表无异。
  *
  * 唯一索引 `uq_lot_bucket` 用 PG15+ 的 `NULLS NOT DISTINCT`（迁移里建），
  * 使 `expires_at IS NULL` 也受唯一约束覆盖 —— 否则 `NULL` 互不相等，

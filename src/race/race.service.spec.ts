@@ -166,6 +166,8 @@ describe('RaceService 看广告增值', () => {
       } as unknown as ClockService,
       adToken as unknown as AdTokenService,
       configStub,
+      { bonusOfPetId: () => Promise.resolve({ raceScore: 0 }) } as never, // petBonus
+      { bump: () => Promise.resolve() } as never, // eventProgress
       redis as unknown as Redis,
     );
   });

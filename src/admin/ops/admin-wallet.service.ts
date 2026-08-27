@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { rowsOf } from '../../common/db/query-result';
+import { BUSINESS_TZ } from '../../common/time/business-day';
 import { EconomyService, WalletView } from '../../economy/economy.service';
 import { User } from '../../entities/user.entity';
 import { LedgerService } from '../../ledger/ledger.service';
@@ -64,7 +65,7 @@ export class AdminWalletService {
   }> {
     const days = q.days ?? 30;
     const params: unknown[] = [days];
-    let where = `"stat_day" >= (now() AT TIME ZONE 'Asia/Shanghai')::date - $1::int`;
+    let where = `"stat_day" >= (now() AT TIME ZONE '${BUSINESS_TZ}')::date - $1::int`;
     if (q.assetCode) {
       params.push(q.assetCode);
       where += ` AND "asset_code" = $${params.length}`;

@@ -1,14 +1,21 @@
 import { BOOST_CONFIG } from '../boost/boost.config';
+import { BREED_CONFIG } from '../breed/breed.config';
+import { CLINIC_CONFIG } from '../clinic/clinic.config';
 import { DAILY_CONFIG } from '../daily/daily.config';
 import { DEX_CONFIG } from '../dex/dex.config';
 import { EXCHANGE_CONFIG } from '../exchange/exchange.config';
+import { FUSION_CONFIG } from '../fusion/fusion.config';
 import { GACHA_CONFIG } from '../gacha/gacha.config';
 import { HOME_CONFIG } from '../home/home.config';
 import { ITEMS_CONFIG } from '../items/items.config';
 import { MARKET_CONFIG } from '../market/market.config';
+import { MINIGAME_CONFIG } from '../minigame/minigame.config';
 import { PET_CONFIG } from '../pet/pet.config';
 import { PROMO_CONFIG } from '../promo/promo.config';
+import { PVP_CONFIG } from '../pvp/pvp.config';
 import { RACE_CONFIG } from '../race/race.config';
+import { TRADE_CONFIG } from '../trade/trade.config';
+import { TRAINING_CONFIG } from '../training/training.config';
 import type { ConfigEntry, ShapeOf } from './game-config.types';
 
 /**
@@ -30,6 +37,14 @@ export const CONFIG_REGISTRY = {
   ...ITEMS_CONFIG,
   ...MARKET_CONFIG,
   ...PROMO_CONFIG,
+  // ---- 玩法扩展新建域（P1/P3/P4/P7/P8/P11/P13 + 双向易货）
+  ...BREED_CONFIG,
+  ...PVP_CONFIG,
+  ...CLINIC_CONFIG,
+  ...FUSION_CONFIG,
+  ...MINIGAME_CONFIG,
+  ...TRAINING_CONFIG,
+  ...TRADE_CONFIG,
 };
 
 /** key → 值类型 的映射，供 `GameConfigService` 提供类型安全的取值。 */

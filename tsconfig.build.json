@@ -1,11 +1,13 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": [
-    "node_modules",
-    "test",
-    "dist",
-    "admin-web",
-    "scripts",
-    "**/*spec.ts"
-  ]
+  // 白名单而非黑名单，这一点是踩过两次的：
+  // tsc 的 rootDir 由「实际参与编译的文件」共同的最深公共目录推导。只要有**任何一个**
+  // 仓库根下的 .ts 被卷进来（历史上是 scripts/ 里的脚本，后来是根目录一个临时的
+  // _db-audit.ts），公共目录就从 src/ 抬到仓库根，产物随之从 dist/main.js 变成
+  // dist/src/main.js —— 而 PM2 起的是 dist/main.js，于是「构建成功但服务起不来」。
+  // 靠 exclude 逐个堵是堵不完的：下一个人在根目录放个临时脚本就又中一次，
+  // 且 nest-cli.json 开了 deleteOutDir，旧产物会先被删掉，故障是立即的。
+  // 改成只 include src/，编译范围与 sourceRoot 一致，新增无关文件不再有影响。
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*spec.ts"]
 }

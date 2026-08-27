@@ -9,7 +9,8 @@ import { SEED_ASSETS } from './asset-seed';
 import { GAME_COIN } from './ledger.types';
 
 /** 表现层分类。账本层不解释它，只有商店/家园/图鉴读。 */
-export type ItemType = 'skin' | 'accessory' | 'furniture' | 'consumable';
+export type ItemType =
+  'skin' | 'accessory' | 'furniture' | 'consumable' | 'petpet';
 
 /**
  * 资产的业务视图：把 `meta` 里的 jsonb 摊平成带类型的字段。
@@ -43,7 +44,7 @@ export interface AssetView {
 }
 
 /**
- * 资产目录：`asset_def` 的播种与只读访问（替代旧 `ItemsService` 的定义表部分）。
+ * 资产目录：`asset_def` 的播种与只读访问。
  *
  * 启动时顺带确保两个系统账户（`FEE`/`ESCROW`）存在——市场功能依赖它们，
  * 而它们的创建没有任何自然触发点。

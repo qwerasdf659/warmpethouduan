@@ -5,6 +5,8 @@ import { EconomyModule } from '../economy/economy.module';
 import { Pet } from '../entities/pet.entity';
 import { User } from '../entities/user.entity';
 import { HomeComfortModule } from '../home/home-comfort.module';
+import { PetBonusModule } from '../pet-bonus/pet-bonus.module';
+import { EventModule } from '../event/event.module';
 import { PetController } from './pet.controller';
 import { PetService } from './pet.service';
 
@@ -14,6 +16,8 @@ import { PetService } from './pet.service';
     AuthModule,
     EconomyModule,
     HomeComfortModule,
+    PetBonusModule,
+    EventModule,
   ],
   controllers: [PetController],
   providers: [PetService],

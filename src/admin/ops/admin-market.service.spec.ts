@@ -1,7 +1,7 @@
 import type { GameConfigService } from '../../config/game-config.service';
 import { MARKET_CONFIG } from '../../market/market.config';
 import type { MarketService } from '../../market/market.service';
-import type { TradeRiskService } from '../../market/trade-risk.service';
+import type { TradeRiskService } from '../../trading/trade-risk.service';
 import { AdminMarketService } from './admin-market.service';
 import type {
   ForceCancelListingDto,
@@ -27,6 +27,7 @@ describe('AdminMarketService', () => {
       gift: false,
       listing: true,
       auction: false,
+      trade: false,
     },
     'market.feeBps': 500,
     'market.listingHours': 72,

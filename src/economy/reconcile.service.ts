@@ -5,6 +5,7 @@ import { DataSource } from 'typeorm';
 import { ClockService } from '../common/clock/clock.service';
 import { LockService } from '../common/lock/lock.service';
 import { rowsOf } from '../common/db/query-result';
+import { BUSINESS_TZ } from '../common/time/business-day';
 import { MARKETING_POINT } from '../ledger/ledger.types';
 
 /** 一条不变量的校验结果。`samples` 只留前若干条，日志与后台都不需要全量。 */
@@ -76,7 +77,7 @@ export class ReconcileService {
    * `NODE_APP_INSTANCE` 由 PM2 注入（fork 模式下为空，视为 0 号）。
    * 多机部署时环境变量不够用，所以再叠一把 Redis 锁兜底。
    */
-  @Cron('10 4 * * *', { name: 'daily-reconcile', timeZone: 'Asia/Shanghai' })
+  @Cron('10 4 * * *', { name: 'daily-reconcile', timeZone: BUSINESS_TZ })
   async daily(): Promise<void> {
     if ((process.env.NODE_APP_INSTANCE ?? '0') !== '0') return;
 
@@ -341,7 +342,7 @@ export class ReconcileService {
     const res = rowsOf<{ stat_day: string }>(
       await this.ds.query(
         `INSERT INTO "asset_daily_stat" ("stat_day","asset_code","reason","issued","burned")
-         SELECT (e."created_at" AT TIME ZONE 'Asia/Shanghai')::date AS stat_day,
+         SELECT (e."created_at" AT TIME ZONE '${BUSINESS_TZ}')::date AS stat_day,
                 e."asset_code",
                 t."reason",
                 COALESCE(SUM(CASE WHEN e."delta" > 0 THEN e."delta" ELSE 0 END), 0),

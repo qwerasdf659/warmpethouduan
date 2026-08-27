@@ -4,6 +4,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { LockService } from '../common/lock/lock.service';
 import { rowsOf } from '../common/db/query-result';
+import { BUSINESS_TZ } from '../common/time/business-day';
 
 /** 始终保持未来这么多个月的分区可用。 */
 const MONTHS_AHEAD = 12;
@@ -59,7 +60,7 @@ export class PartitionService implements OnApplicationBootstrap {
   }
 
   /** 每月 1 日 03:30 补建，早于当日的过期与对账作业。 */
-  @Cron('30 3 1 * *', { name: 'monthly-partition', timeZone: 'Asia/Shanghai' })
+  @Cron('30 3 1 * *', { name: 'monthly-partition', timeZone: BUSINESS_TZ })
   async monthly(): Promise<void> {
     if ((process.env.NODE_APP_INSTANCE ?? '0') !== '0') return;
     await this.lock.withLock(

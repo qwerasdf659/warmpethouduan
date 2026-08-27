@@ -5,6 +5,7 @@ import { DataSource } from 'typeorm';
 import { ClockService } from '../common/clock/clock.service';
 import { LockService } from '../common/lock/lock.service';
 import { rowsOf } from '../common/db/query-result';
+import { BUSINESS_TZ } from '../common/time/business-day';
 import type { SystemCode } from '../entities/account.entity';
 import { LedgerService } from './ledger.service';
 import { AccountRef } from './ledger.types';
@@ -55,7 +56,7 @@ export class ExpireService {
    * 对账的不变量 10 会校验「不存在已过期但仍有余量的批次」，
    * 若对账先跑，它每天都会把当天该过期的批次报成异常。
    */
-  @Cron('0 4 * * *', { name: 'daily-expire', timeZone: 'Asia/Shanghai' })
+  @Cron('0 4 * * *', { name: 'daily-expire', timeZone: BUSINESS_TZ })
   async daily(): Promise<void> {
     if ((process.env.NODE_APP_INSTANCE ?? '0') !== '0') return;
 

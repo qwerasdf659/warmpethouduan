@@ -13,23 +13,6 @@ import { InventoryService } from '../ledger/inventory.service';
 import { RewardService } from '../ledger/reward.service';
 import type { LedgerReason } from '../ledger/ledger.types';
 
-export interface ItemDefView {
-  key: string;
-  type: string;
-  name: string;
-  slot: string | null;
-  price: number;
-  pool: string;
-  comfort: number;
-  meta: Record<string, unknown>;
-  sortOrder: number;
-  /** 是否可在玩家间交易（前端据此显示「挂单」入口） */
-  tradable: boolean;
-  /** 限量总量与已发行量（`null` = 不限量） */
-  mintLimit: number | null;
-  mintedCount: number;
-}
-
 export interface BuyResult {
   itemKey: string;
   qty: number;
@@ -76,37 +59,18 @@ export class ItemsService {
     return this.inventory.ownedKindCount(userId);
   }
 
-  toDefView(d: AssetView): ItemDefView {
-    return {
-      key: d.code,
-      type: d.itemType ?? '',
-      name: d.name,
-      slot: d.slot,
-      price: d.price,
-      // 出参保留 `pool` 字段名以不破坏客户端契约；值由计价资产反推
-      pool: d.priceAsset === 'marketing_point' ? 'marketing' : 'game',
-      comfort: d.comfort,
-      meta: d.meta,
-      sortOrder: d.sortOrder,
-      tradable: d.tradable,
-      mintLimit: d.mintLimit,
-      mintedCount: d.mintedCount,
-    };
-  }
-
   // ---------------------------------------------------------------- 写
 
   /**
    * 无偿发放物品（扭蛋发奖、兑换即时到账、后台补偿）。
    *
-   * `bizKey` 现在是**必填**的：旧模型下物品发放没有持久幂等位，只靠
-   * `IdempotencyInterceptor` 的 Redis 24h 窗口，隔日重复提交同一 bizId 会真的
-   * 再发一次（这就是缺口 G1）。收敛到 `asset_txn.biz_id` 之后，发放与发币享有
-   * 同一套持久幂等，「我的皮肤没了」也终于能从分录里查出来。
+   * `bizKey` 是**必填**的：幂等必须落在 `asset_txn.biz_id` 的唯一约束上，
+   * 而不是只靠 `IdempotencyInterceptor` 的 Redis 24h 窗口——后者过期之后，
+   * 重复提交同一 bizId 会真的再发一次。落到分录上还有个附带好处：
+   * 「我的皮肤没了」能从流水里查出来。
    *
-   * 也不再有 `grant` / `grantUnlocked` 之分：两者存在的唯一理由是 Redis 锁不可重入，
-   * 而记账路径已经不用锁了。那个区分曾让「兑换即时到账」静默降级成人工发货
-   * ——持锁者调 `grant` 抢不到自己的锁、抛 409、被 catch 吞掉。
+   * 本方法**不抢锁**，因此持有 `pet:{userId}` 锁的调用方可以直接调它。
+   * 这条性质要保持：记账路径一旦开始抢锁，持锁者会抢不到自己已持有的锁而抛 409。
    */
   async grant(
     userId: string,
@@ -137,9 +101,8 @@ export class ItemsService {
   /**
    * 购买物品：**一张凭证**同时扣费与入库。
    *
-   * 这是缺口 G2 的修复点。旧实现是「`economy.apply` 扣费」后再「`addOwned` 入库」
-   * 两次独立写入，中间崩掉就是扣了钱没给东西，只能靠 `duplicated` 标志小心地
-   * 不重放入库。现在两者在同一事务里，中间态不存在。
+   * 扣费与入库必须同事务：拆成两次独立写入的话，中间崩掉就是扣了钱没给东西，
+   * 且只能靠调用方小心地不重放入库来补救。合成一张凭证后中间态不存在。
    */
   async buy(
     userId: string,
@@ -176,10 +139,10 @@ export class ItemsService {
   /**
    * 扣减背包持有量（消耗品使用等）。
    *
-   * 返回扣减后的余量；库存不足抛 400 —— 与旧实现返回 `null` 不同：余额不足在新
-   * 模型里由 `asset_balance` 的条件 UPDATE 拦住并整体回滚事务，本就是异常路径，
-   * 没有「安静地返回 null 让调用方自己判」的余地（那个 null 曾因 `rowsOf` 用错
-   * 而变成 NaN，等于不限量消耗）。
+   * 返回扣减后的余量；库存不足**抛 400 而不是返回 null**：不足由
+   * `asset_balance` 的条件 UPDATE 拦住并整体回滚事务，本就是异常路径。
+   * 用返回值表达失败迟早会遇到调用方漏判（一个没判到的空值等于不限量消耗），
+   * 而异常漏判会直接冒到全局过滤器，不会静默放行。
    */
   async consumeOwned(
     userId: string,

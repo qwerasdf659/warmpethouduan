@@ -133,6 +133,9 @@ export class DexService {
       case 'ownedAll':
         // 只累加收藏品类型：消耗品不计（理由见 COLLECTIBLE_TYPES 注释）
         return COLLECTIBLE_TYPES.reduce((a, t) => a + (ctx.kinds[t] ?? 0), 0);
+      case 'formCount':
+        // P9：拥有几种融合形态（走 pet 表，不走库存）
+        return new Set(ctx.pets.map((p) => p.form)).size;
       default: {
         const itemType = COLLECT_TYPE_OF[entry.type];
         return itemType ? (ctx.kinds[itemType] ?? 0) : 0;

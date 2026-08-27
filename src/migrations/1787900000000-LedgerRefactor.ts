@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * 账本与交易系统重构（见 `docs/账本与交易系统架构设计.md`）。
+ * 账本与交易系统重构。
  *
  * 用 raw SQL 而非 `migration:generate`：本迁移里有三样东西 TypeORM 表达不了——
  * `asset_entry` 的按月分区、`asset_lot` 的 `NULLS NOT DISTINCT` 唯一索引、

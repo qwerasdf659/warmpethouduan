@@ -27,7 +27,10 @@ export type DexProgressType =
   | 'ownedSkin'
   | 'ownedAccessory'
   | 'ownedFurniture'
-  | 'ownedAll';
+  | 'ownedAll'
+  // P9：Petpet 收集 & 融合形态收集
+  | 'ownedPetpet'
+  | 'formCount';
 
 export const DEX_PROGRESS_TYPES: DexProgressType[] = [
   'maxLevel',
@@ -37,6 +40,8 @@ export const DEX_PROGRESS_TYPES: DexProgressType[] = [
   'ownedAccessory',
   'ownedFurniture',
   'ownedAll',
+  'ownedPetpet',
+  'formCount',
 ];
 
 /** 收集类进度对应的物品类型（`ownedAll` 为跨类型合计）。 */
@@ -44,6 +49,7 @@ export const COLLECT_TYPE_OF: Partial<Record<DexProgressType, string>> = {
   ownedSkin: 'skin',
   ownedAccessory: 'accessory',
   ownedFurniture: 'furniture',
+  ownedPetpet: 'petpet',
 };
 
 /**
@@ -53,7 +59,9 @@ export const COLLECT_TYPE_OF: Partial<Record<DexProgressType, string>> = {
  * 但它是买了就用掉的日常道具，不是收藏品 —— 全加的话「收集 10 种」买几种零食
  * 就凑满了，而且用光后种类数还会掉回去，出现「图鉴进度倒退」这种解释不清的现象。
  */
-export const COLLECTIBLE_TYPES: string[] = Object.values(COLLECT_TYPE_OF);
+// 显式白名单而非从 COLLECT_TYPE_OF 自动派生：Petpet 是带被动加成的养成件，
+// 不应混进「换装与家具的总收集度」ownedAll，否则会静默改变存量 collect10 条目难度。
+export const COLLECTIBLE_TYPES: string[] = ['skin', 'accessory', 'furniture'];
 
 export interface DexEntry {
   key: string;
@@ -156,6 +164,24 @@ const DEFAULT_ENTRIES: DexEntry[] = [
     target: 10,
     reward: 400,
     sortOrder: 40,
+  },
+  {
+    key: 'petpet2',
+    name: '萌宠伙伴',
+    desc: '收集 2 种 Petpet',
+    type: 'ownedPetpet',
+    target: 2,
+    reward: 200,
+    sortOrder: 41,
+  },
+  {
+    key: 'form2',
+    name: '形态进化',
+    desc: '拥有 2 种融合形态',
+    type: 'formCount',
+    target: 2,
+    reward: 300,
+    sortOrder: 42,
   },
 ];
 

@@ -6,6 +6,7 @@
  */
 import {
   defineConfig,
+  nonNegInt,
   posInt,
   strictObject,
 } from '../config/game-config.types';
@@ -20,6 +21,14 @@ export interface HomeGrid {
 
 const DEFAULT_GRID: HomeGrid = { width: 6, height: 6 };
 
+/** 家园访问/点赞（P9）。 */
+export interface HomeVisit {
+  /** 每次点赞给被访问者发的游戏币（每人每天对同一目标限一次） */
+  likeRewardCoin: number;
+}
+
+const DEFAULT_VISIT: HomeVisit = { likeRewardCoin: 10 };
+
 export const HOME_CONFIG = {
   'home.grid': defineConfig<HomeGrid>({
     description: '家园房间网格尺寸（格）。缩小后已越界的旧摆放不会被自动清理',
@@ -28,6 +37,14 @@ export const HOME_CONFIG = {
       // 上限 64 是保护：网格越大，摆放校验要比对的矩形越多
       width: posInt.max(64).required(),
       height: posInt.max(64).required(),
+    }),
+  }),
+
+  'home.visit': defineConfig<HomeVisit>({
+    description: '家园访问：点赞给被访问者发币，每人每天对同一目标一次',
+    default: DEFAULT_VISIT,
+    schema: strictObject({
+      likeRewardCoin: nonNegInt.max(10_000).required(),
     }),
   }),
 };

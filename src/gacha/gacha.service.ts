@@ -57,12 +57,11 @@ export interface GachaDrawResult {
  *  2. **保底可靠**：计数落 `gacha_state`（不放 Redis，理由见实体注释）；
  *  3. **概率可公示**：权重换算的百分比由 `GET /gacha` 直接给出，
  *     前端展示的就是服务端实际使用的那份权重，不存在两份口径；
- *  4. **不产出货币**：产出侧只有道具与消耗品（D1）。
+ *  4. **不产出货币**：产出侧只有道具与消耗品——扭蛋是 sink，产币就成了摇钱。
  *
- * 扣费与发奖的关系在重构后变了：以往是「先 `economy.apply` 扣币 → 落 draw 行 →
- * 再逐个 `grantUnlocked` 发货」，三次独立写入。现在扣费与发奖合成**一张凭证**
- * （`RewardService.exchange`），因此「扣了钱没给东西」的中间态不存在。
- * `delivered` 标志仍然保留，但它守的是「掷出结果已落库、凭证尚未提交」这个更窄的窗口。
+ * 扣费与发奖合成**一张凭证**（`RewardService.exchange`），不是「先扣费再发货」
+ * 两次独立写入，因此「扣了钱没给东西」的中间态在结构上不存在。
+ * `delivered` 标志守的是更窄的窗口：掷出结果已落库、但凭证尚未提交。
  */
 @Injectable()
 export class GachaService {

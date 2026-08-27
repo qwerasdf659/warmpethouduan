@@ -16,25 +16,17 @@ import type {
   ListingStatus,
 } from '../entities/market-listing.entity';
 import { AccountService } from '../ledger/account.service';
-import {
-  AssetCatalogService,
-  AssetView,
-} from '../ledger/asset-catalog.service';
+import { AssetCatalogService } from '../ledger/asset-catalog.service';
 import { InventoryService } from '../ledger/inventory.service';
 import { LedgerService } from '../ledger/ledger.service';
 import { AccountRef, PostResult } from '../ledger/ledger.types';
-import { HoldingCleanupService } from './holding-cleanup.service';
+import { SubjectResolverService } from '../trading/subject-resolver.service';
+import type { Subject } from '../trading/trading.types';
+import { HoldingCleanupService } from '../trading/holding-cleanup.service';
 import { MarketQueryService } from './market-query.service';
-import { TradeRiskService } from './trade-risk.service';
+import { TradeRiskService } from '../trading/trade-risk.service';
 import { TradeSettlementService } from './trade-settlement.service';
-import type {
-  ListingRow,
-  ListingView,
-  ResolvedSubject,
-  Subject,
-} from './market.types';
-
-export type { Subject } from './market.types';
+import type { ListingRow, ListingView } from './market.types';
 
 /**
  * 交易市场。四档功能共用同一套账本原语，差别只在凭证的形状：
@@ -65,6 +57,7 @@ export class MarketService {
     private readonly accounts: AccountService,
     private readonly catalog: AssetCatalogService,
     private readonly inventory: InventoryService,
+    private readonly subjects: SubjectResolverService,
     private readonly risk: TradeRiskService,
     private readonly cleanup: HoldingCleanupService,
     private readonly config: GameConfigService,
@@ -91,7 +84,7 @@ export class MarketService {
     await this.risk.assertEnabled('recycle');
 
     return this.lock.withLock(`pet:${userId}`, async () => {
-      const s = await this.resolveSubject(userId, subject, {
+      const s = await this.subjects.resolve(userId, subject, {
         requireTradable: false,
       });
       const rateBps = await this.config.get('market.recycleRateBps');
@@ -192,7 +185,7 @@ export class MarketService {
     await this.assertUserExists(toUserId);
 
     return this.lock.withLock(`pet:${fromUserId}`, async () => {
-      const s = await this.resolveSubject(fromUserId, subject, {
+      const s = await this.subjects.resolve(fromUserId, subject, {
         requireTradable: true,
       });
       const fromAccount = await this.accounts.resolve({ userId: fromUserId });
@@ -287,7 +280,7 @@ export class MarketService {
     }
 
     return this.lock.withLock(`pet:${userId}`, async () => {
-      const s = await this.resolveSubject(userId, subject, {
+      const s = await this.subjects.resolve(userId, subject, {
         requireTradable: true,
       });
       await this.risk.assertPriceBand(s.referenceValue, price);
@@ -381,7 +374,14 @@ export class MarketService {
     });
   }
 
-  /** 撤单：把锁定的标的原样退回。 */
+  /**
+   * 撤单：把锁定的标的原样退回。
+   *
+   * **刻意没有 `assertEnabled`**，这不是漏写：总闸的语义是「不许再进场」而非
+   * 「冻住所有人」。关市场的典型场景是出事止血，此时标的还在 ESCROW，若撤单也一起
+   * 拒绝，玩家资产就被永久锁死 —— 比市场多开几分钟严重得多。同理适用于强制撤单、
+   * 到期退回与竞价结算，它们共用 `settlement.unwind`。详见 `market.config.ts` 头注释。
+   */
   async cancel(
     listingId: string,
     userId: string,
@@ -717,80 +717,6 @@ export class MarketService {
   }
 
   // ================================================================ 内部
-
-  /**
-   * 解析交易标的：校验归属、状态、冷却与可交易性。
-   *
-   * `requireTradable` 对回收是 false：不可交易的扭蛋限定款仍然可以卖给系统 ——
-   * 回收没有对手方，不构成玩家间流转，因此不触及「开箱变现」那条红线。
-   */
-  private async resolveSubject(
-    userId: string,
-    subject: Subject,
-    opts: { requireTradable: boolean },
-  ): Promise<ResolvedSubject> {
-    if ('instanceId' in subject) {
-      const instances = await this.inventory.listInstances(userId);
-      const inst = instances.find((i) => i.instanceId === subject.instanceId);
-      if (!inst) throw new NotFoundException('物品不存在或不属于你');
-      if (inst.state !== 'held') {
-        throw new BadRequestException('该物品正在挂单中');
-      }
-      // R2：获得后冷却。防盗号者即刻套现 —— 盗号的价值全在「立刻出手」
-      if (
-        inst.tradableAfter &&
-        new Date(inst.tradableAfter) > this.clock.now()
-      ) {
-        throw new BadRequestException(
-          `该物品需在 ${new Date(inst.tradableAfter).toLocaleString('zh-CN')} 后才可交易`,
-        );
-      }
-      const def = await this.requireDef(inst.assetCode, opts.requireTradable);
-      return {
-        def,
-        assetCode: def.code,
-        qty: null,
-        instanceId: inst.instanceId,
-        referenceValue: def.price,
-      };
-    }
-
-    const qty = Math.trunc(subject.qty);
-    if (!Number.isSafeInteger(qty) || qty <= 0) {
-      throw new BadRequestException('件数必须为正整数');
-    }
-    const def = await this.requireDef(subject.assetCode, opts.requireTradable);
-    if (def.kind === 'unique') {
-      throw new BadRequestException('唯一物品需按实例交易，请指定 instanceId');
-    }
-    const owned = await this.inventory.ownedQty(userId, def.code);
-    if (owned < qty) throw new BadRequestException('持有数量不足');
-
-    return {
-      def,
-      assetCode: def.code,
-      qty,
-      instanceId: null,
-      referenceValue: def.price * qty,
-    };
-  }
-
-  private async requireDef(
-    assetCode: string,
-    requireTradable: boolean,
-  ): Promise<AssetView> {
-    const def = await this.catalog.getByCode(assetCode);
-    if (!def) throw new NotFoundException('资产不存在');
-    if (def.kind === 'currency') {
-      // 货币不作为交易标的：它是**计价物**。允许「用币买币」就等于开了汇兑市场，
-      // 而双池物理隔离的全部意义就是不存在汇率
-      throw new BadRequestException('货币不能作为交易标的');
-    }
-    if (requireTradable && !def.tradable) {
-      throw new BadRequestException(`${def.name} 不可交易`);
-    }
-    return def;
-  }
 
   /** 物品离手后收敛穿戴与摆放。 */
   private async cleanupAfterOutflow(

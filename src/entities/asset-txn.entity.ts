@@ -19,14 +19,13 @@ export type TxnKind = 'issue' | 'burn' | 'transfer' | 'freeze' | 'reversal';
 /**
  * 凭证头 —— **全局幂等的唯一权威**。
  *
- * 旧模型把幂等键分散在 `ledger` / `redeem_order` / `gacha_draw` / `promo_redemption`
- * 四张表上，每加一个业务都要记得配一套。收敛到这里之后，一次操作 N 条分录整体原子、
- * 整体幂等，新增业务不可能漏配。
+ * 幂等键只此一处，不按业务分散到各自的表上：一次操作 N 条分录整体原子、
+ * 整体幂等，新增业务不可能漏配一套。
  *
- * ⚠ `biz_id` 全局唯一 ⇒ **必须自带用户区分**。旧 `ledger` 的幂等键是
- * `(user_id, biz_id, pool)`，带 `user_id` 是为了防不同玩家撞同一个客户端 UUID。
- * 提到凭证头后不再有 `user_id` 参与，因此前缀由 `LedgerService` 内部强制拼接，
- * 调用方无法绕过（见 `LedgerService.buildBizId`）。
+ * ⚠ `biz_id` 全局唯一 ⇒ **必须自带用户区分**，否则两个玩家撞同一个客户端 UUID
+ * 就会互相命中对方的回放。凭证头上没有 `user_id` 列参与唯一约束，
+ * 因此区分前缀由 `LedgerService` 内部强制拼接，调用方无法绕过
+ * （见 `LedgerService.buildBizId`）。
  */
 @Entity({ name: 'asset_txn', synchronize: false })
 @Check(

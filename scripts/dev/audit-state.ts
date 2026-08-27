@@ -121,12 +121,66 @@ async function auditConfig(
   );
 }
 
+/**
+ * 业务表清单与行数。
+ *
+ * 筛选条件全是被踩出来的，逐条都有原因：
+ *
+ *  - `relkind IN ('r','p')`：只要普通表与分区父表。托管库的 public 里还混着
+ *    `pg_stat_*` / `failed_authentication_*` 视图（v）与 `postgres_log_0..7`
+ *    外部表（f），后者由 file_fdw 指向服务端的 csv 日志。
+ *  - `NOT relispartition`：`asset_entry` 的 18 个月度分区行数已计入父表，
+ *    逐个列出来只会把输出灌成噪音。
+ *  - 排除**传统继承**的父表：`postgres_log`（relkind='r'）自身是空的，但 8 个
+ *    file_fdw 子表继承它，`count(*)` 会连带去读那些 csv 并抛 58P01，
+ *    一条就能中断整轮巡检。判据是「子表 relispartition=false」——
+ *    这正是它与声明式分区的区别，不能简单地把所有 pg_inherits 参与者都排掉，
+ *    否则 `asset_entry` 也会被误伤。
+ */
+async function auditTables(
+  client: ReturnType<typeof makeClient>,
+): Promise<void> {
+  console.log('\n业务表');
+  const { rows } = await client.query<{ table_name: string }>(
+    `SELECT c.relname AS table_name
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relkind IN ('r', 'p')
+        AND NOT c.relispartition
+        AND NOT EXISTS (
+          SELECT 1 FROM pg_inherits i
+            JOIN pg_class ch ON ch.oid = i.inhrelid
+           WHERE i.inhparent = c.oid AND NOT ch.relispartition
+        )
+      ORDER BY c.relname`,
+  );
+
+  let total = 0;
+  const nonEmpty: string[] = [];
+  for (const r of rows) {
+    const { rows: cnt } = await client.query<{ n: string }>(
+      `SELECT count(*)::int AS n FROM "${r.table_name}"`,
+    );
+    const n = Number(cnt[0].n);
+    total += n;
+    if (n > 0) nonEmpty.push(`${r.table_name}=${n}`);
+  }
+  ok(`${rows.length} 张业务表，合计 ${total} 行`);
+  console.log(
+    nonEmpty.length === 0
+      ? '  · 全部为空（全新库）'
+      : `  · 有数据的表：${nonEmpty.join(' ')}`,
+  );
+}
+
 async function main(): Promise<void> {
   const client = makeClient();
   await client.connect();
   try {
     await auditMigrations(client);
     await auditConfig(client);
+    await auditTables(client);
   } finally {
     await client.end();
   }

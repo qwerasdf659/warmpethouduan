@@ -11,10 +11,16 @@ interface Jscode2SessionResponse {
   errmsg?: string;
 }
 
+/**
+ * code2Session 的结果。
+ *
+ * 刻意**不保留 `session_key`**：它是解密微信加密数据（手机号、运动步数等）的钥匙，
+ * 而本服务没有任何解密场景。取回来放着不用，等于凭空多一份高价值凭据在内存与日志里
+ * 打转。将来真要接加密数据，再连同存储与轮换策略一起设计。
+ */
 export interface WechatSession {
   openid: string;
   unionid?: string;
-  sessionKey: string;
 }
 
 /** 假登录 code 前缀。只有带此前缀的 code 才会走 mock 分支。 */
@@ -32,7 +38,7 @@ export const MOCK_OPENID_PREFIX = 'mock_openid_';
 
 /**
  * 微信小游戏服务端接口封装。
- * M1 只用 jscode2session（用登录 code 换 openid/unionid）。
+ * 目前只用 jscode2session（用登录 code 换 openid/unionid）。
  */
 @Injectable()
 export class WechatService {
@@ -88,11 +94,7 @@ export class WechatService {
       );
     }
 
-    return {
-      openid: data.openid,
-      unionid: data.unionid,
-      sessionKey: data.session_key ?? '',
-    };
+    return { openid: data.openid, unionid: data.unionid };
   }
 
   /**
@@ -117,10 +119,6 @@ export class WechatService {
     }
 
     this.logger.warn(`⚠ 假登录放行：tag=${tag}（未经微信校验）`);
-    return {
-      openid: `${MOCK_OPENID_PREFIX}${tag}`,
-      unionid: undefined,
-      sessionKey: 'mock-session-key',
-    };
+    return { openid: `${MOCK_OPENID_PREFIX}${tag}`, unionid: undefined };
   }
 }

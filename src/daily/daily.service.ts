@@ -7,6 +7,7 @@ import { LockService } from '../common/lock/lock.service';
 import { businessDayKey, isConsecutiveDay } from '../common/time/business-day';
 import { GameConfigService } from '../config/game-config.service';
 import { EconomyService } from '../economy/economy.service';
+import { EventProgressService } from '../event/event-progress.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { Daily } from '../entities/daily.entity';
 import {
@@ -58,6 +59,7 @@ export class DailyService {
     private readonly lock: LockService,
     private readonly economy: EconomyService,
     private readonly config: GameConfigService,
+    private readonly eventProgress: EventProgressService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
@@ -113,6 +115,9 @@ export class DailyService {
         reason: 'daily',
         refId: day,
       });
+
+      // P12 活动任务进度：登录/签到来源（软失败，不阻断签到）
+      await this.eventProgress.bump(userId, 'login');
 
       const progress = await this.readProgress(userId, day, row);
       return {

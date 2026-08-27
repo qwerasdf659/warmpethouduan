@@ -9,19 +9,22 @@ import type { IdempotencyRecord } from '@/types';
  * 幂等记录查询。排障场景：玩家说「点了一次却扣了两次」/「点了没反应」，
  * 用玩家ID + bizId 查这条请求到底有没有被受理过、结果是什么。
  *
- * 幂等键落在 Redis（`idem:{userId}:{bizId}`，24h TTL），所以查不到既可能是
- * 没发生过，也可能是已过期 —— 过期后要看钱包流水而不是这里。
+ * 幂等键落在 Redis（24h TTL），按身份分两个命名空间：
+ *  - 玩家端 `idem:{userId}:{bizId}`      → 主体栏填玩家 id
+ *  - 后台端 `idem:admin:{adminId}:{bizId}` → 主体栏填 `admin:{adminId}`
+ *
+ * 查不到既可能是没发生过，也可能是已过期 —— 过期后要看钱包流水而不是这里。
  */
 export default function IdempotencyPage() {
   const [empty, setEmpty] = useState(false);
 
   const columns: ProColumns<IdempotencyRecord>[] = [
     {
-      title: '玩家ID',
+      title: '主体',
       dataIndex: 'userId',
-      width: 100,
+      width: 130,
       formItemProps: { rules: [{ required: true, message: '必填' }] },
-      fieldProps: { placeholder: '必填' },
+      fieldProps: { placeholder: '玩家 id，或 admin:{管理员id}' },
     },
     {
       title: 'bizId',
@@ -65,7 +68,7 @@ export default function IdempotencyPage() {
   return (
     <PageContainer
       header={{ title: '幂等记录查询' }}
-      content="按玩家ID查询写接口的幂等记录。记录只保留 24 小时，查不到不代表没发生过——更早的请以钱包流水为准。"
+      content="按主体查询写接口的幂等记录：玩家填玩家 id，后台操作填 admin:{管理员id}。记录只保留 24 小时，查不到不代表没发生过——更早的请以钱包流水为准。"
     >
       {empty ? (
         <Alert
@@ -84,7 +87,7 @@ export default function IdempotencyPage() {
         // 首屏不查：userId 是必填参数，空查会被后端 400
         manualRequest
         options={false}
-        locale={{ emptyText: <Empty description="输入玩家ID后查询" /> }}
+        locale={{ emptyText: <Empty description="输入主体后查询" /> }}
         request={async (params) => {
           const userId = (params as { userId?: string }).userId;
           if (!userId) return { data: [], total: 0, success: true };

@@ -5,31 +5,49 @@ import {
   ProFormSelect,
   ProFormSwitch,
   ProFormText,
+  ProFormTextArea,
   ProTable,
 } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useAccess } from '@umijs/max';
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Popconfirm, Tag, message } from 'antd';
 import {
   createItem,
   deleteItem,
+  getConfig,
   listItems,
   updateItem,
 } from '@/services/config';
-import type { ItemDefView } from '@/types';
+import type { ItemDefView, RarityDef } from '@/types';
 
 const typeText: Record<string, string> = {
   skin: '皮肤',
   accessory: '配饰',
   furniture: '家具',
   consumable: '消耗品',
+  petpet: '宠物',
 };
 
 export default function ItemsPage() {
   const access = useAccess();
   const tableRef = useRef<ActionType>();
   const canWrite = access.canWriteConfig;
+
+  /*
+   * 稀有度色标取自配置中心的 `items.rarities`，不在前端另写一份。
+   *
+   * 之前这里硬编码了一张 4 键的表，而配置中心里那份有 5 档且运营可编辑——
+   * 于是「改了颜色不生效」，并且 `uncommon` 因为不在硬编码表里，
+   * 一直被渲染成灰色。同一件事有两个真相时，坏的那个不会自己暴露。
+   */
+  const [rarities, setRarities] = useState<RarityDef[]>([]);
+  useEffect(() => {
+    getConfig('items.rarities')
+      .then((c) => setRarities((c.value as RarityDef[]) ?? []))
+      // 取不到就退化成「只显示 key 不上色」，不该因为色标拖垮整个物品列表
+      .catch(() => setRarities([]));
+  }, []);
 
   const columns: ProColumns<ItemDefView>[] = [
     { title: 'code', dataIndex: 'code', copyable: true },
@@ -43,10 +61,22 @@ export default function ItemsPage() {
         accessory: { text: '配饰' },
         furniture: { text: '家具' },
         consumable: { text: '消耗品' },
+        petpet: { text: '宠物' },
       },
       render: (_, r) => <Tag>{typeText[r.type ?? ''] ?? r.type ?? '-'}</Tag>,
     },
     { title: '名称', dataIndex: 'name', hideInSearch: true },
+    {
+      title: '稀有度',
+      width: 90,
+      hideInSearch: true,
+      render: (_, r) => {
+        const rarity = (r.meta?.rarity as string) ?? '';
+        if (!rarity) return '-';
+        const def = rarities.find((d) => d.key === rarity);
+        return <Tag color={def?.color}>{def?.name ?? rarity}</Tag>;
+      },
+    },
     {
       title: '槽位',
       dataIndex: 'slot',
@@ -182,10 +212,28 @@ function ItemForm({
       trigger={trigger}
       modalProps={{ destroyOnClose: true }}
       initialValues={
-        initialValues ?? { type: 'skin', pool: 'game', enabled: true, price: 0 }
+        initialValues
+          ? {
+              ...initialValues,
+              meta:
+                initialValues.meta && Object.keys(initialValues.meta).length
+                  ? JSON.stringify(initialValues.meta, null, 2)
+                  : '',
+            }
+          : { type: 'skin', pool: 'game', enabled: true, price: 0 }
       }
       onFinish={async (v: any) => {
-        await onSubmit(v);
+        const { meta, ...rest } = v;
+        let parsedMeta: Record<string, unknown> | undefined;
+        if (meta && String(meta).trim()) {
+          try {
+            parsedMeta = JSON.parse(meta);
+          } catch {
+            message.error('必须是合法 JSON');
+            return false;
+          }
+        }
+        await onSubmit(parsedMeta ? { ...rest, meta: parsedMeta } : rest);
         return true;
       }}
     >
@@ -211,6 +259,7 @@ function ItemForm({
             { label: '配饰', value: 'accessory' },
             { label: '家具', value: 'furniture' },
             { label: '消耗品', value: 'consumable' },
+            { label: '宠物', value: 'petpet' },
           ]}
           rules={[{ required: true }]}
         />
@@ -247,6 +296,12 @@ function ItemForm({
       />
       <ProFormDigit name="sortOrder" label="排序" />
       <ProFormSwitch name="enabled" label="上架" />
+      <ProFormTextArea
+        name="meta"
+        label="meta (JSON)"
+        fieldProps={{ rows: 6 }}
+        extra="itemType / slot / price / pool 请用上方表单项，在此填写 bonus / rarity 等无专属控件的键"
+      />
     </ModalForm>
   );
 }

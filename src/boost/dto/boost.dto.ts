@@ -22,7 +22,7 @@ export class AdVerifyDto {
   bizId: string;
 
   /**
-   * `POST /ad/token`（scene=ad_reward）签发的一次性凭证，**必填**。
+   * `POST /boost/ad/token`（scene=ad_reward）签发的一次性凭证，**必填**。
    * 与赛跑增值接口同一套风控：没有凭证就发币等于「客户端说看了广告就给」。
    */
   @IsString()

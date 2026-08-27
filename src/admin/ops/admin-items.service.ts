@@ -36,6 +36,8 @@ const KIND_OF_TYPE: Record<string, AssetDef['kind']> = {
   accessory: 'unique',
   furniture: 'stackable',
   consumable: 'stackable',
+  // Petpet 是收集品（有实例、可编号、可交易），与皮肤/配饰同构
+  petpet: 'unique',
 };
 
 /**

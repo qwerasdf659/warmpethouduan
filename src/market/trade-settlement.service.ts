@@ -9,7 +9,7 @@ import { rowsOf } from '../common/db/query-result';
 import { AccountService } from '../ledger/account.service';
 import { LedgerService } from '../ledger/ledger.service';
 import { Leg, PostResult } from '../ledger/ledger.types';
-import { TradeRiskService } from './trade-risk.service';
+import { TradeRiskService } from '../trading/trade-risk.service';
 import type { ListingRow } from './market.types';
 
 /**

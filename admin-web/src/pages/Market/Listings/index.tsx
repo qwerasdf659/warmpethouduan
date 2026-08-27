@@ -192,6 +192,7 @@ export default function MarketListingsPage() {
                     ['gift', '赠送'],
                     ['listing', '寄售'],
                     ['auction', '竞价'],
+                    ['trade', '易货'],
                   ] as const
                 ).map(([k, label]) => (
                   <Tag key={k} color={status.features[k] ? 'green' : 'default'}>

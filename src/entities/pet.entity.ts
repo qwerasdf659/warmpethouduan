@@ -22,9 +22,14 @@ import { User } from './user.entity';
 @Entity('pet')
 // 「每个 user 至多一只 active」用部分唯一索引在库层兜底，
 // 而不是只靠应用层锁：并发/脚本/后台直改都绕不过去。
+// P8 融合后加入 status：已融合（status='fused'）的幽灵宠不占出战唯一位。
 @Index('uq_pet_active_per_user', ['userId'], {
   unique: true,
-  where: 'is_active = true',
+  where: "is_active = true AND status = 'active'",
+})
+// P8：有效宠物查询的兜底索引（8 处 userId 查询统一走 status='active'）
+@Index('idx_pet_active_status', ['userId'], {
+  where: "status = 'active'",
 })
 export class Pet {
   @PrimaryGeneratedColumn('increment', { type: 'bigint' })
@@ -78,6 +83,38 @@ export class Pet {
 
   @Column({ name: 'last_seen_at', type: 'timestamptz' })
   lastSeenAt: Date;
+
+  /** P10 性格特质：存 key 数组（如 ["greedy","sleepy"]），终身不变。名称/数值在配置里。 */
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  traits: string[];
+
+  /** P3 皮肤基因：两个花色基因，前端不可见。产蛋时定死，孵化不再随机。 */
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  genes: string[];
+
+  /** P3 繁殖冷却到期时刻；null = 不在冷却中。 */
+  @Column({ name: 'breed_cooldown_until', type: 'timestamptz', nullable: true })
+  breedCooldownUntil: Date | null;
+
+  /** P8 形态：normal | glow | rainbow（融合提升）。 */
+  @Column({ type: 'varchar', length: 16, default: 'normal' })
+  form: string;
+
+  /** P8 稀有度 key（对齐 items.rarities）。 */
+  @Column({ type: 'varchar', length: 16, default: 'common' })
+  rarity: string;
+
+  /** P8 生命状态：active | fused（材料宠软失效，不 DELETE，保血统可追溯）。 */
+  @Column({ type: 'varchar', length: 16, default: 'active' })
+  status: string;
+
+  /** P13 累计陪玩次数（技巧解锁前提；daily 域的按日 Redis 键无法承载累计语义）。 */
+  @Column({ name: 'play_count', type: 'int', default: 0 })
+  playCount: number;
+
+  /** P3 繁殖遗传的体力上限加成（基点，1000=+10%）；非繁殖出身恒为 0。 */
+  @Column({ name: 'stamina_bonus_bps', type: 'int', default: 0 })
+  staminaBonusBps: number;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

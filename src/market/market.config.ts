@@ -5,8 +5,15 @@
  * 的唯一理由：交易一旦出问题（刷币外挂、站外币商、定价配错），处置窗口是分钟级的，
  * 而发版是小时级的。
  *
- * `market.enabled` 是总闸（风控清单 R10）：关掉它之后所有写操作立刻拒绝，
- * 但已挂的单不会消失、已冻结的资产不会丢 —— 撤单与结算仍可由后台驱动。
+ * `market.enabled` 是总闸（风控清单 R10）：关掉它之后**建仓类**写操作立刻拒绝
+ * （回收 / 赠送 / 挂单 / 出价 / 一价成交），已挂的单不会消失、已冻结的资产不会丢。
+ *
+ * ⚠ **平仓类操作刻意不受总闸约束**，别把它们"补齐"成也要校验：
+ * 玩家撤单（`MarketService.cancel`）、后台强制撤单、到期退回、竞价结算走的都是
+ * `TradeSettlementService.unwind`，总闸关闭时依然可用。理由是关市场的典型场景就是
+ * 「出事了先止血」，此时标的还在 ESCROW、买家的钱还在冻结里 —— 若连退出通道一起关掉，
+ * 玩家资产就被永久锁死，而这比让市场多开几分钟严重得多。
+ * 换句话说总闸的语义是"不许再进场"，不是"冻住所有人"。
  */
 import * as Joi from 'joi';
 import {
@@ -17,7 +24,12 @@ import {
   type ShapeOf,
 } from '../config/game-config.types';
 
-/** 分档开关。架构设计把交易分 5 期上线，每期一个独立可关的开关。 */
+/**
+ * 分档开关：每条玩家间流转路径一个独立可关的开关。
+ *
+ * 粒度做到「每条路径一个」而不是一个总开关，是因为出事时要能只关掉出问题的那条
+ * （比如易货被刷就只关易货），而不是把整个市场一起停掉。
+ */
 export interface MarketFeatures {
   /** 3a 系统回收 */
   recycle: boolean;
@@ -27,6 +39,8 @@ export interface MarketFeatures {
   listing: boolean;
   /** 3d 自由竞价 */
   auction: boolean;
+  /** 3e 双向易货（barter） */
+  trade: boolean;
 }
 
 export interface MarketRisk {
@@ -63,6 +77,7 @@ const DEFAULT_FEATURES: MarketFeatures = {
   gift: false,
   listing: false,
   auction: false,
+  trade: false,
 };
 
 /**
@@ -116,13 +131,14 @@ export const MARKET_CONFIG = {
 
   'market.features': defineConfig<MarketFeatures>({
     description:
-      '交易分档开关：recycle=系统回收(3a)、gift=定向赠送(3b)、listing=一价寄售(3c)、auction=自由竞价(3d)',
+      '交易分档开关：recycle=系统回收(3a)、gift=定向赠送(3b)、listing=一价寄售(3c)、auction=自由竞价(3d)、trade=双向易货(3e)',
     default: DEFAULT_FEATURES,
     schema: strictObject({
       recycle: Joi.boolean().required(),
       gift: Joi.boolean().required(),
       listing: Joi.boolean().required(),
       auction: Joi.boolean().required(),
+      trade: Joi.boolean().required(),
     }),
   }),
 

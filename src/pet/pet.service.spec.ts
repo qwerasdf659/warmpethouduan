@@ -45,6 +45,7 @@ const T: PetTuning = {
   maxPets: PET_CONFIG['pet.max_pets_per_user'].default,
   offline: PET_CONFIG['pet.offline'].default,
   comfort: PET_CONFIG['pet.comfort'].default,
+  traitDefs: PET_CONFIG['pet.traits'].default,
 };
 
 const OFFLINE = T.offline;
@@ -70,6 +71,8 @@ describe('PetService 结算', () => {
       null as never, // economy
       null as never, // playerStatus
       null as never, // config（测试直接传 tuning，不走配置服务）
+      null as never, // petBonus（结算路径不涉及加成聚合）
+      null as never, // eventProgress（结算路径不推进活动进度）
       redis as unknown as Redis,
     );
     return svc as unknown as PetInternals;
@@ -415,8 +418,11 @@ describe('PetService.applyConsumable', () => {
           'pet.max_pets_per_user': T.maxPets,
           'pet.offline': T.offline,
           'pet.comfort': T.comfort,
+          'pet.traits': [],
         }),
       } as never,
+      null as never, // petBonus（applyConsumable 不走加成聚合）
+      null as never, // eventProgress（applyConsumable 不推进活动进度）
       null as never, // redis
     );
     return { svc, pets, pet };

@@ -19,6 +19,8 @@ import { REDIS_CLIENT } from '../redis/redis.module';
 import { GameConfigService } from '../config/game-config.service';
 import { EconomyService } from '../economy/economy.service';
 import { PetService } from '../pet/pet.service';
+import { PetBonusService } from '../pet-bonus/pet-bonus.service';
+import { EventProgressService } from '../event/event-progress.service';
 import { RaceRecord } from '../entities/race-record.entity';
 import {
   RaceFormula,
@@ -126,6 +128,8 @@ export class RaceService {
     private readonly clock: ClockService,
     private readonly adToken: AdTokenService,
     private readonly config: GameConfigService,
+    private readonly petBonus: PetBonusService,
+    private readonly eventProgress: EventProgressService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
@@ -302,6 +306,8 @@ export class RaceService {
     // 否则重复结算能把「完成 1 场赛跑」刷满
     if (marked.affected) {
       await this.bumpRaceTask(userId);
+      // P12 活动任务进度：赛跑来源（软失败）
+      await this.eventProgress.bump(userId, 'race');
     }
 
     return {
@@ -453,7 +459,13 @@ export class RaceService {
    */
   private async runRace(
     userId: string,
-    battle: { speed: number; endurance: number; mood: number; level: number },
+    battle: {
+      petId: string;
+      speed: number;
+      endurance: number;
+      mood: number;
+      level: number;
+    },
     track: RaceTrack,
     cfg: {
       'race.formula': RaceFormula;
@@ -466,7 +478,11 @@ export class RaceService {
   ): Promise<RaceOutcome> {
     const formula = cfg['race.formula'];
     const base = baseFinishTime(battle, track, formula);
-    const playerBase = base * (opts.timeBonus ?? 1);
+    // P1/P2/P8/P13：raceScore 加成作用于玩家完赛时间（>0 更快，即时间更短），不影响影子对手。
+    const raceScore = (await this.petBonus.bonusOfPetId(battle.petId))
+      .raceScore;
+    const rsDenom = Math.max(0.1, 1 + raceScore);
+    const playerBase = (base * (opts.timeBonus ?? 1)) / rsDenom;
     const finishTime = jitterTime(playerBase, formula.jitter);
 
     const { times: opponentFinishTimes, source: ghostSource } =

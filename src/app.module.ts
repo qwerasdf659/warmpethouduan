@@ -33,6 +33,18 @@ import { ExchangeModule } from './exchange/exchange.module';
 import { PromoModule } from './promo/promo.module';
 import { GachaModule } from './gacha/gacha.module';
 import { AdminModule } from './admin/admin.module';
+import { PetBonusModule } from './pet-bonus/pet-bonus.module';
+import { ConditionModule } from './condition/condition.module';
+import { TrainingModule } from './training/training.module';
+import { BreedModule } from './breed/breed.module';
+import { FusionModule } from './fusion/fusion.module';
+import { PvpModule } from './pvp/pvp.module';
+import { SocialModule } from './social/social.module';
+import { ClinicModule } from './clinic/clinic.module';
+import { MinigameModule } from './minigame/minigame.module';
+import { EventModule } from './event/event.module';
+import { TradeModule } from './trade/trade.module';
+import { PvpRealtimeModule } from './pvp-realtime/pvp-realtime.module';
 
 @Module({
   imports: [
@@ -52,8 +64,8 @@ import { AdminModule } from './admin/admin.module';
         password: config.get<string>('db.password'),
         database: config.get<string>('db.name'),
         // 与 data-source.ts 同样用通配，实体注册表只有 src/entities/ 这一份真相源。
-        // 曾经这里是显式数组：新增实体漏登记就运行时炸，而 data-source 那边漏登记会让
-        // migration:generate 把「未注册」的表判成多余并生成 DROP TABLE。
+        // 别改回显式数组：漏登记一个实体在这边是运行时炸，在 data-source 那边更糟——
+        // migration:generate 会把「未注册」的表判成多余并生成 DROP TABLE。
         // `{.ts,.js}` 两种后缀都要：ts-jest/e2e 从 src 跑，生产从 dist 跑。
         entities: [join(__dirname, 'entities', '*.entity{.ts,.js}')],
         synchronize: false,
@@ -129,6 +141,19 @@ import { AdminModule } from './admin/admin.module';
     PromoModule,
     GachaModule,
     AdminModule,
+    // ---- 玩法扩展
+    PetBonusModule,
+    ConditionModule,
+    TrainingModule,
+    BreedModule,
+    FusionModule,
+    PvpModule,
+    SocialModule,
+    ClinicModule,
+    MinigameModule,
+    EventModule,
+    TradeModule,
+    PvpRealtimeModule,
   ],
   controllers: [AppController],
   providers: [

@@ -23,8 +23,9 @@ import { BoostService } from './boost.service';
 /**
  * 激励视频广告奖励 + 增值场景的一次性凭证签发。
  *
- * 本模块统一挂在 `boost/` 下（曾经散成 `/ad`、`/boost`、`/stamina` 三个顶级前缀，
- * 同一个 BoostService 却要在三处找入口）。一个模块一个前缀，与 pet/race/home 一致。
+ * 本模块统一挂在 `boost/` 下：一个模块一个前缀，与 pet/race/home 一致。
+ * 别按场景再拆出 `/ad`、`/stamina` 这类顶级前缀——同一个 BoostService
+ * 会变成要在三处找入口。
  */
 @Controller('boost/ad')
 @UseGuards(JwtAuthGuard, PlayerStatusGuard)

@@ -37,7 +37,7 @@ export class RaceSettleDto {
   raceId: string;
 }
 
-/** 看广告类增值：raceId + 由 `POST /ad/token` 领到的一次性凭证。 */
+/** 看广告类增值：raceId + 由 `POST /boost/ad/token` 领到的一次性凭证。 */
 export class RaceAdBoostDto {
   @IsString()
   @MinLength(1)

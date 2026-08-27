@@ -6,6 +6,15 @@
 
 export const BUSINESS_TZ_OFFSET_MS = 8 * 3_600_000;
 
+/**
+ * 业务时区的 IANA 名。`@Cron({ timeZone })` 与 SQL 的 `AT TIME ZONE` 都引用它。
+ *
+ * 与 `BUSINESS_TZ_OFFSET_MS` 是同一件事的两种表达：JS 侧算日切用固定偏移（无夏令时，
+ * 固定偏移即精确且不依赖运行环境的 tz 数据库），而 cron 调度器与 Postgres 只认时区名。
+ * 两者必须同源，否则「日报按东八区切、cron 却按 UTC 触发」这类错位极难被发现。
+ */
+export const BUSINESS_TZ = 'Asia/Shanghai';
+
 /** 业务日键（东八区），形如 20260825。 */
 export function businessDayKey(now: Date): string {
   const shifted = new Date(now.getTime() + BUSINESS_TZ_OFFSET_MS);
@@ -13,6 +22,17 @@ export function businessDayKey(now: Date): string {
   const m = `${shifted.getUTCMonth() + 1}`.padStart(2, '0');
   const d = `${shifted.getUTCDate()}`.padStart(2, '0');
   return `${y}${m}${d}`;
+}
+
+/**
+ * 业务日期串（东八区），形如 2026-08-25。
+ *
+ * 与 `businessDayKey` 的区别只是分隔符，但用途不同：本函数喂给 `date` 类型的列
+ * （如 `trade_risk_daily.stat_day`），Postgres 只认带横线的形态。
+ */
+export function businessDateString(now: Date): string {
+  const k = businessDayKey(now);
+  return `${k.slice(0, 4)}-${k.slice(4, 6)}-${k.slice(6, 8)}`;
 }
 
 /** 距下一个东八区 00:00 的秒数（用作每日计数键的 TTL）。 */

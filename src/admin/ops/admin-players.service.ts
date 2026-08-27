@@ -132,10 +132,9 @@ export class AdminPlayersService {
   /**
    * 补发装扮/家具/背景：委托 `ItemsService.grant`。
    *
-   * `bizId` 现在真正生效：发放落 `asset_txn.biz_id`，同一 bizId 重复提交是幂等回放。
-   * 重构前它只被 `IdempotencyInterceptor` 的 Redis 24h 窗口覆盖，隔日重发同一
-   * 工单会真的再补一件（这就是缺口 G1 —— 玩家投诉「我的皮肤没了」也查不出来，
-   * 因为发放根本没有流水）。
+   * `bizId` 落 `asset_txn.biz_id`，同一 bizId 重复提交是幂等回放。这份保证必须
+   * 来自数据库唯一约束而不是 `IdempotencyInterceptor` 的 Redis 窗口——窗口一过，
+   * 隔日重发同一张工单就会真的再补一件，且发放没有流水可查。
    */
   async grantItem(
     id: string,

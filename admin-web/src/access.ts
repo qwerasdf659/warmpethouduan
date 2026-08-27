@@ -39,5 +39,12 @@ export default function access(
     canReadStats: has('stats:read'),
     canReadConfig: has('config:read'),
     canWriteConfig: has('config:write'),
+    // 玩法扩展：繁殖 / PvP / 诊所 / 小游戏为只读运营视图，活动配置可写
+    canReadPet: has('pet:read'),
+    canReadPvp: has('pvp:read'),
+    canReadClinic: has('clinic:read'),
+    canReadMinigame: has('minigame:read'),
+    canReadEvent: has('event:read'),
+    canWriteEvent: has('event:write'),
   };
 }

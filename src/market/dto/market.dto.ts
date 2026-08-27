@@ -17,7 +17,7 @@ import {
  *  - `assetCode` + `qty` → 可堆叠资产（家具/消耗品），交易的是件数
  *
  * 用 `ValidateIf` 互斥而不是分两个 DTO：客户端只需要记一个请求形状，
- * 而「传了两个」或「都没传」在服务端会被 `resolveSubject` 明确拒绝。
+ * 而「传了两个」或「都没传」在服务端会被 `SubjectResolverService.resolve` 明确拒绝。
  */
 export class SubjectDto {
   @ValidateIf((o: SubjectDto) => !o.instanceId)

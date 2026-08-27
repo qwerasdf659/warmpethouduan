@@ -12,7 +12,7 @@ import type { ItemType } from '../ledger/asset-catalog.service';
 import { InventoryService } from '../ledger/inventory.service';
 import { ItemsService } from './items.service';
 
-const WARDROBE_TYPES: ItemType[] = ['skin', 'accessory'];
+const WARDROBE_TYPES: ItemType[] = ['skin', 'accessory', 'petpet'];
 
 export interface WardrobeItemView {
   key: string;

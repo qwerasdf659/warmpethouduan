@@ -24,8 +24,8 @@ export class CreateItemDefDto {
   @MaxLength(48)
   key: string;
 
-  @IsIn(['skin', 'accessory', 'furniture', 'consumable'])
-  type: 'skin' | 'accessory' | 'furniture' | 'consumable';
+  @IsIn(['skin', 'accessory', 'furniture', 'consumable', 'petpet'])
+  type: 'skin' | 'accessory' | 'furniture' | 'consumable' | 'petpet';
 
   @IsString()
   @IsNotEmpty()

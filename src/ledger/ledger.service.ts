@@ -380,9 +380,9 @@ export class LedgerService {
   /**
    * 幂等键前缀由本服务**强制拼接**，调用方无法绕过。
    *
-   * `asset_txn.biz_id` 是全局唯一的，而旧 `ledger` 的幂等键带 `user_id`
-   * （防不同玩家撞同一个客户端 UUID）。前缀就是那个 `user_id` 的替代物：
-   * 少了它，两个玩家提交同样的客户端 UUID 会互相「幂等回放」掉对方的操作。
+   * `asset_txn.biz_id` 是全局唯一的，唯一约束里没有 `user_id` 参与，
+   * 前缀就是用户区分的唯一来源：少了它，两个玩家提交同样的客户端 UUID
+   * 会互相「幂等回放」掉对方的操作。
    */
   buildBizId(input: {
     scope?: PostInput['scope'];

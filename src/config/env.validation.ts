@@ -9,6 +9,14 @@ export const envValidationSchema = Joi.object({
     .valid('development', 'staging', 'production', 'test')
     .default('development'),
   PORT: Joi.number().default(8080),
+  /**
+   * 进程时区。**由 Node.js 运行时自己消费**（影响 `Date` 的本地方法与日志时间戳），
+   * 业务代码里没有任何读取点，别因为「grep 不到消费方」把它当死配置删掉。
+   *
+   * 业务日切不依赖它：那条口径固定在 `common/time/business-day.ts` 的
+   * `BUSINESS_TZ` / `BUSINESS_TZ_OFFSET_MS`，即使有人把本变量改成 UTC，
+   * 签到、日额度、日报的日切也不会跟着漂。
+   */
   TZ: Joi.string().default('Asia/Shanghai'),
   /**
    * 信任的反向代理跳数（Express trust proxy）。Sealos DevBox 的公网访问经一层
@@ -60,6 +68,17 @@ export const envValidationSchema = Joi.object({
   ADMIN_INIT_USERNAME: Joi.string().default('admin'),
   ADMIN_INIT_PASSWORD: Joi.string().allow('').default(''),
   ADMIN_CORS_ORIGINS: Joi.string().allow('').default(''),
+
+  // 游戏前端（Unity WebGL 导出）跨域白名单（逗号分隔）。原生 Unity 不走 CORS，无需配置。
+  GAME_CORS_ORIGINS: Joi.string().allow('').default(''),
+  /**
+   * 通用登录（设备/账号）总开关。默认开启，供 Unity 原生 / Steam 等非微信平台取得 JWT；
+   * 纯微信小游戏部署可置 false，仅保留微信 code 登录，收紧攻击面。
+   */
+  AUTH_GENERIC_LOGIN_ENABLED: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(true),
 
   // 微信小游戏
   WECHAT_APPID: Joi.string().required(),

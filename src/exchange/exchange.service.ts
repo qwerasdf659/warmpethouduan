@@ -192,8 +192,8 @@ export class ExchangeService {
    * 发放失败**不回滚订单**，而是落 pending 交给后台补发。留 pending 的代价是运营
    * 多点一次发货，但不会出现钱货两空。
    *
-   * 发放的幂等键由订单 `bizId` 派生，因此重复调用不会多发一份 —— 这一点在重构前
-   * 做不到（物品发放当时没有持久幂等键，只有 Redis 24h 窗口）。
+   * 发放的幂等键由订单 `bizId` 派生（落 `asset_txn.biz_id` 唯一约束），
+   * 因此重复调用不会多发一份，且这份保证不随 Redis 的存活与否而变。
    */
   private async autoFulfill(
     userId: string,
@@ -204,10 +204,9 @@ export class ExchangeService {
       return false;
     }
     try {
-      // 记账路径不再抢 Redis 锁，因此在 `pet:{userId}` 锁内直接调用是安全的。
-      // 重构前这里必须用一个专门的 `grantUnlocked` 变体，否则持锁者会抢不到自己
-      // 已持有的锁、抛 409、被下面的 catch 吞掉 —— 于是「即时到账」静默降级成
-      // 人工发货。那个 bug 真实发生过，现在它的成因（双入口）已被消除。
+      // 记账路径自身不抢 Redis 锁，因此在 `pet:{userId}` 锁内直接调用是安全的。
+      // 这条性质必须保持：一旦记账路径又开始抢锁，持锁者会抢不到自己已持有的锁、
+      // 抛 409、被下面的 catch 吞掉，「即时到账」就会静默降级成人工发货。
       await this.items.grant(
         userId,
         item.grantItemKey,

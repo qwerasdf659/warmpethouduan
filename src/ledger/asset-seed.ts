@@ -124,6 +124,21 @@ export const SEED_ASSETS: AssetSeed[] = [
   gachaLoot(consumable('cons_bubble', '清洁泡泡', 60, 62)),
   gachaLoot(consumable('cons_energy', '能量饮', 120, 63)),
   gachaLoot(consumable('cons_cake', '生日蛋糕', 300, 64)),
+  // P1 治疗用药：可交易、非扭蛋产出。items.consumables 里刻意不配效果，
+  // 于是它可买可囤但走 /items/consumables/use 会被拒，只能走 /pet/cure 消耗。
+  consumable('cons_medicine', '宠物药品', 150, 65),
+
+  // P2 Petpet（unique，槽位 pet）：全部可交易、非扭蛋产出，meta.bonus 走 PetBonusService。
+  //
+  // `pp_bug` 走商店而不是扭蛋稀有档，是两个理由叠加的结果（文档 §7.4）：
+  //  1. 进扭蛋就必须 `gachaOutput=true + tradable=false`（ck_asset_no_trade_gacha），
+  //     后台建不出来、只能靠迁移插行，凭空多一次迁移；
+  //  2. 原稿给它的 `raceScore` 加成会直接改赛跑名次，而赛跑是异步 PvP 的底层，
+  //     天梯会退化成装备战。改成 `expGain` 后，「影响赛跑」这个特权只留给训练技巧。
+  petpet('pp_bird', '小鸟', 800, 70, { offlineRate: 0.05 }, 'uncommon'),
+  petpet('pp_fish', '小鱼', 1200, 71, { expGain: 0.1 }, 'rare'),
+  petpet('pp_bug', '瓢虫', 1000, 72, { expGain: 0.06 }, 'uncommon'),
+  petpet('pp_ghost', '小幽灵', 1600, 73, { moodDecay: -0.1 }, 'rare'),
 ];
 
 // ------------------------------------------------------------------ 构造助手
@@ -181,6 +196,38 @@ function accessory(
       price,
       priceAsset: GAME_COIN,
       comfort: 0,
+    },
+  };
+}
+
+/** P2 Petpet：unique 收集品，槽位固定 `pet`，带被动加成（走 PetBonusService）。 */
+function petpet(
+  code: string,
+  name: string,
+  price: number,
+  sortOrder: number,
+  bonus: {
+    offlineRate?: number;
+    expGain?: number;
+    raceScore?: number;
+    moodDecay?: number;
+  },
+  rarity: string,
+): AssetSeed {
+  return {
+    code,
+    kind: 'unique',
+    name,
+    tradable: true,
+    sortOrder,
+    meta: {
+      itemType: 'petpet',
+      slot: 'pet',
+      price,
+      priceAsset: GAME_COIN,
+      comfort: 0,
+      bonus,
+      rarity,
     },
   };
 }

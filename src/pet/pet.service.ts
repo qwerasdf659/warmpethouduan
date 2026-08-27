@@ -22,7 +22,10 @@ import { EconomyService } from '../economy/economy.service';
 import { Pet } from '../entities/pet.entity';
 import { User } from '../entities/user.entity';
 import { HomeComfortService } from '../home/home-comfort.service';
+import { PetBonusService } from '../pet-bonus/pet-bonus.service';
+import { EventProgressService } from '../event/event-progress.service';
 import {
+  buildPetTuning,
   clamp,
   clampStat,
   levelOf,
@@ -105,23 +108,46 @@ export class PetService {
     private readonly economy: EconomyService,
     private readonly playerStatus: PlayerStatusService,
     private readonly config: GameConfigService,
+    private readonly petBonus: PetBonusService,
+    private readonly eventProgress: EventProgressService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
   /** 取本次请求的配置快照。 */
   private async tuning(): Promise<PetTuning> {
+    return buildPetTuning(await this.config.snapshot());
+  }
+
+  /**
+   * 出生随机分配特质（P10）：按权重不放回抽 trait_count 个，终身不变。
+   * 服务端权威，玩家端不可指定（CreatePetDto 不接受 traits）。
+   */
+  private async rollTraits(): Promise<string[]> {
     const c = await this.config.snapshot();
-    return {
-      rates: c['pet.rates'],
-      growth: c['pet.growth'],
-      attrs: c['pet.attrs'],
-      stages: c['pet.stages'],
-      actions: c['pet.actions'],
-      dailyCap: c['pet.daily_cap'],
-      maxPets: c['pet.max_pets_per_user'],
-      offline: c['pet.offline'],
-      comfort: c['pet.comfort'],
-    };
+    const defs = c['pet.traits'];
+    const { min, max } = c['pet.trait_count'];
+    if (!defs.length) return [];
+    const count = Math.min(
+      defs.length,
+      min + Math.floor(Math.random() * (max - min + 1)),
+    );
+    const pool = defs.map((d) => ({
+      key: d.key,
+      weight: Math.max(1, d.weight),
+    }));
+    const picked: string[] = [];
+    for (let i = 0; i < count && pool.length; i += 1) {
+      const total = pool.reduce((s, p) => s + p.weight, 0);
+      let r = Math.random() * total;
+      let idx = 0;
+      for (; idx < pool.length; idx += 1) {
+        r -= pool[idx].weight;
+        if (r <= 0) break;
+      }
+      const chosen = pool.splice(Math.min(idx, pool.length - 1), 1)[0];
+      picked.push(chosen.key);
+    }
+    return picked;
   }
 
   /** 读家园舒适度换算的心情衰减减免系数（没摆家具则 0）。 */
@@ -153,22 +179,27 @@ export class PetService {
     const t = await this.tuning();
     const pet = await this.resolvePet(userId, t, petId);
     const cf = await this.comfortFactor(userId, t.comfort);
+    const decay = await this.petBonus.bonusOf(pet);
     return {
-      pet: toView(pet, settle(pet, this.clock.now(), cf, t), t),
+      pet: toView(pet, settle(pet, this.clock.now(), cf, t, decay), t),
     };
   }
 
-  /** 我的宠物列表（结算后，只读不落库）。 */
+  /** 我的宠物列表（结算后，只读不落库）。已融合的幽灵宠不显示。 */
   async list(userId: string): Promise<{ pets: PetStateView[] }> {
     const t = await this.tuning();
     const rows = await this.pets.find({
-      where: { userId },
+      where: { userId, status: 'active' },
       order: { id: 'ASC' },
     });
     const now = this.clock.now();
     const cf = await this.comfortFactor(userId, t.comfort);
     return {
-      pets: rows.map((p) => toView(p, settle(p, now, cf, t), t)),
+      pets: await Promise.all(
+        rows.map(async (p) =>
+          toView(p, settle(p, now, cf, t, await this.petBonus.bonusOf(p)), t),
+        ),
+      ),
     };
   }
 
@@ -184,7 +215,11 @@ export class PetService {
     });
     const now = this.clock.now();
     const cf = await this.comfortFactor(userId, t.comfort);
-    return rows.map((p) => toView(p, settle(p, now, cf, t), t));
+    return Promise.all(
+      rows.map(async (p) =>
+        toView(p, settle(p, now, cf, t, await this.petBonus.bonusOf(p)), t),
+      ),
+    );
   }
 
   // ---------------------------------------------------------------- 写
@@ -198,7 +233,10 @@ export class PetService {
     const t = await this.tuning();
     return this.lock.withLock(`pet:${userId}`, async () => {
       await this.assertNotBanned(userId);
-      const count = await this.pets.count({ where: { userId } });
+      // P8：只数有效宠（status='active'），融合掉的幽灵宠不占养宠位
+      const count = await this.pets.count({
+        where: { userId, status: 'active' },
+      });
       if (count >= t.maxPets) {
         throw new BadRequestException(`最多只能养 ${t.maxPets} 只宠物`);
       }
@@ -215,6 +253,7 @@ export class PetService {
           intimacy: 0,
           level: 1,
           exp: 0,
+          traits: await this.rollTraits(),
           lastSeenAt: this.clock.now(),
         }),
       );
@@ -272,11 +311,14 @@ export class PetService {
       }
 
       const now = this.clock.now();
+      // 先取加成：既用于结算衰减（moodDecay 等），又用于产出封顶前的收益倍率
+      const bonus = await this.petBonus.bonusOf(pet);
       const cur = settle(
         pet,
         now,
         await this.comfortFactor(userId, t.comfort),
         t,
+        bonus,
       );
 
       // 体力类消耗需先校验，避免负数
@@ -288,10 +330,26 @@ export class PetService {
       const day = businessDayKey(now);
       const ttlSec = secondsUntilNextBusinessDay(now);
 
+      // 加成先算再封顶（顺序很重要：先封顶会把特质加成吃掉一部分而玩家不自知）。
+      // 只作用于收益类；动作专属倍率 feed/pet/playGain 叠加病症/特质的 intimacy/expGain。
+      const actMult =
+        action === 'feed'
+          ? bonus.feedGain
+          : action === 'pet'
+            ? bonus.petGain
+            : action === 'play'
+              ? bonus.playGain
+              : 0;
+      const boost = (base: number, extra: number) =>
+        Math.max(0, Math.round(base * (1 + actMult + extra)));
+      const wantIntimacy = boost(cfg.gain.intimacy, bonus.intimacyGain);
+      const wantExp = boost(cfg.gain.exp, bonus.expGain);
+      const wantCoin = boost(cfg.gain.coin, 0);
+
       const grantedIntimacy = await this.consumeDailyCap(
         userId,
         'intimacy',
-        cfg.gain.intimacy,
+        wantIntimacy,
         day,
         ttlSec,
         t.dailyCap,
@@ -299,7 +357,7 @@ export class PetService {
       const grantedExp = await this.consumeDailyCap(
         userId,
         'exp',
-        cfg.gain.exp,
+        wantExp,
         day,
         ttlSec,
         t.dailyCap,
@@ -307,20 +365,24 @@ export class PetService {
       const grantedCoin = await this.consumeDailyCap(
         userId,
         'coin',
-        cfg.gain.coin,
+        wantCoin,
         day,
         ttlSec,
         t.dailyCap,
       );
       const capped =
-        grantedIntimacy < cfg.gain.intimacy ||
-        grantedExp < cfg.gain.exp ||
-        grantedCoin < cfg.gain.coin;
+        grantedIntimacy < wantIntimacy ||
+        grantedExp < wantExp ||
+        grantedCoin < wantCoin;
 
       const exp = cur.exp + grantedExp;
       const levelBefore = levelOf(cur.exp, t.growth).level;
       const progress = levelOf(exp, t.growth);
-      const staminaMax = staminaMaxOf(progress.level, t.attrs);
+      const staminaMax = staminaMaxOf(
+        progress.level,
+        t.attrs,
+        pet.staminaBonusBps ?? 0,
+      );
 
       pet.hunger = clampStat(cur.hunger + (cfg.effects.hunger ?? 0));
       pet.cleanliness = clampStat(
@@ -332,6 +394,10 @@ export class PetService {
       pet.exp = exp;
       pet.level = progress.level;
       pet.lastSeenAt = now;
+      // P13：累计陪玩次数落库（技巧解锁前提，与 daily 的按日 Redis 键各管各的）
+      if (action === 'play') {
+        pet.playCount = (pet.playCount ?? 0) + 1;
+      }
 
       const saved = await this.pets.save(pet);
       await this.redis.set(cdKey, '1', 'PX', cfg.cooldownMs);
@@ -343,6 +409,8 @@ export class PetService {
         await this.redis.incr(`act:${userId}:${day}:play`);
         await this.redis.expire(`act:${userId}:${day}:play`, ttlSec);
       }
+      // P12 活动任务进度：互动来源（软失败，不阻断互动）
+      await this.eventProgress.bump(userId, 'interact');
 
       // 发放游戏币：经济域用 DB 原子记账 + (userId,bizId,pool) 持久幂等，
       // 不抢 Redis 锁，故在 pet 锁内调用安全（不会自死锁）。
@@ -393,7 +461,7 @@ export class PetService {
         ? await this.pets.findOne({ where: { id: input.petId, userId } })
         : ((await this.pets.findOne({ where: { userId, isActive: true } })) ??
           (await this.pets.findOne({
-            where: { userId },
+            where: { userId, status: 'active' },
             order: { id: 'ASC' },
           })));
       if (!pet) throw new NotFoundException('该玩家无可调整的宠物');
@@ -410,7 +478,7 @@ export class PetService {
 
       const exp = Math.max(0, Math.round(apply(cur.exp, input.exp)));
       const level = levelOf(exp, t.growth).level;
-      const staminaMax = staminaMaxOf(level, t.attrs);
+      const staminaMax = staminaMaxOf(level, t.attrs, pet.staminaBonusBps ?? 0);
 
       pet.hunger = clampStat(apply(cur.hunger, input.hunger));
       pet.mood = clampStat(apply(cur.mood, input.mood));
@@ -448,7 +516,7 @@ export class PetService {
         t,
       );
       const level = levelOf(cur.exp, t.growth).level;
-      const staminaMax = staminaMaxOf(level, t.attrs);
+      const staminaMax = staminaMaxOf(level, t.attrs, pet.staminaBonusBps ?? 0);
 
       pet.hunger = cur.hunger;
       pet.cleanliness = cur.cleanliness;
@@ -499,7 +567,11 @@ export class PetService {
     const exp = cur.exp + (effect.exp ?? 0);
     const levelBefore = levelOf(cur.exp, t.growth).level;
     const progress = levelOf(exp, t.growth);
-    const staminaMax = staminaMaxOf(progress.level, t.attrs);
+    const staminaMax = staminaMaxOf(
+      progress.level,
+      t.attrs,
+      pet.staminaBonusBps ?? 0,
+    );
 
     pet.hunger = clampStat(cur.hunger + (effect.hunger ?? 0));
     pet.cleanliness = clampStat(cur.cleanliness + (effect.cleanliness ?? 0));
@@ -576,7 +648,7 @@ export class PetService {
       }
 
       const level = levelOf(cur.exp, t.growth).level;
-      const staminaMax = staminaMaxOf(level, t.attrs);
+      const staminaMax = staminaMaxOf(level, t.attrs, pet.staminaBonusBps ?? 0);
       pet.hunger = cur.hunger;
       pet.cleanliness = cur.cleanliness;
       pet.mood = cur.mood;
@@ -616,7 +688,7 @@ export class PetService {
     });
     if (active) return active;
     const any = await this.pets.findOne({
-      where: { userId },
+      where: { userId, status: 'active' },
       order: { id: 'ASC' },
     });
     if (!any) throw new NotFoundException('没有可参赛的宠物');
@@ -640,6 +712,7 @@ export class PetService {
       await this.activeLevel(userId, t.growth),
       t.offline,
       await this.comfortFactor(userId, t.comfort),
+      await this.activeOfflineRate(userId),
     );
   }
 
@@ -661,6 +734,7 @@ export class PetService {
         await this.activeLevel(userId, t.growth),
         t.offline,
         await this.comfortFactor(userId, t.comfort),
+        await this.activeOfflineRate(userId),
       );
       if (claimableCoin < 1) {
         throw new BadRequestException('暂无可领取的离线收益');
@@ -689,8 +763,26 @@ export class PetService {
   ): Promise<number> {
     const pet =
       (await this.pets.findOne({ where: { userId, isActive: true } })) ??
-      (await this.pets.findOne({ where: { userId }, order: { id: 'ASC' } }));
+      (await this.pets.findOne({
+        where: { userId, status: 'active' },
+        order: { id: 'ASC' },
+      }));
     return pet ? levelOf(pet.exp, growth).level : 1;
+  }
+
+  /**
+   * 出战宠的离线时薪加成（P1 病症 offlineRate / P2 Petpet / P8 融合形态）。
+   * 离线收益是**账号级**（user.offline_base_at），故只取出战宠那一份，绝不按多宠累加。
+   */
+  private async activeOfflineRate(userId: string): Promise<number> {
+    const pet =
+      (await this.pets.findOne({ where: { userId, isActive: true } })) ??
+      (await this.pets.findOne({
+        where: { userId, status: 'active' },
+        order: { id: 'ASC' },
+      }));
+    if (!pet) return 0;
+    return (await this.petBonus.bonusOf(pet)).offlineRate;
   }
 
   private computeOffline(
@@ -699,6 +791,7 @@ export class PetService {
     level: number,
     cfg: PetOffline,
     comfortFactor: number,
+    offlineRate = 0,
   ): OfflineView {
     const base = user.offlineBaseAt ?? user.lastSeenAt ?? user.createdAt;
     const elapsedMs = Math.max(0, now.getTime() - new Date(base).getTime());
@@ -708,8 +801,9 @@ export class PetService {
 
     // 出战宠等级对时薪的小幅加成（level=1 无加成）
     const levelHourly = cfg.coinPerHour * (1 + (level - 1) * cfg.perLevelBonus);
-    // 家园舒适度加成：与心情衰减减免同一个系数，上限即 pet.comfort.factorCap
-    const coinPerHour = levelHourly * (1 + comfortFactor);
+    // 家园舒适度加成 × 出战宠加成/减益（病症会拉低，Petpet/融合会抬高）
+    const coinPerHour =
+      levelHourly * (1 + comfortFactor) * Math.max(0, 1 + offlineRate);
     const claimableCoin = Math.floor(cappedH * coinPerHour);
 
     return {
@@ -742,7 +836,7 @@ export class PetService {
     if (active) return active;
 
     const any = await this.pets.findOne({
-      where: { userId },
+      where: { userId, status: 'active' },
       order: { id: 'ASC' },
     });
     if (any) return any;
@@ -760,6 +854,7 @@ export class PetService {
         intimacy: 0,
         level: 1,
         exp: 0,
+        traits: await this.rollTraits(),
         lastSeenAt: this.clock.now(),
       }),
     );

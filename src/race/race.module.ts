@@ -4,6 +4,8 @@ import { AuthModule } from '../auth/auth.module';
 import { BoostModule } from '../boost/boost.module';
 import { EconomyModule } from '../economy/economy.module';
 import { PetModule } from '../pet/pet.module';
+import { PetBonusModule } from '../pet-bonus/pet-bonus.module';
+import { EventModule } from '../event/event.module';
 import { RaceRecord } from '../entities/race-record.entity';
 import { RaceController } from './race.controller';
 import { RaceService } from './race.service';
@@ -16,6 +18,8 @@ import { RaceService } from './race.service';
     BoostModule,
     EconomyModule,
     PetModule,
+    PetBonusModule,
+    EventModule,
   ],
   controllers: [RaceController],
   providers: [RaceService],

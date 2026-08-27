@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { GameConfigService } from '../../config/game-config.service';
 import { MarketService } from '../../market/market.service';
-import { TradeRiskService } from '../../market/trade-risk.service';
-import type { NetFlowAlert } from '../../market/trade-risk.service';
+import { TradeRiskService } from '../../trading/trade-risk.service';
+import type { NetFlowAlert } from '../../trading/trade-risk.service';
 import {
   ForceCancelListingDto,
   QueryListingsDto,

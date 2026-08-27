@@ -26,6 +26,7 @@ import { LedgerService } from '../../src/ledger/ledger.service';
 import { RewardService } from '../../src/ledger/reward.service';
 import { GAME_COIN, MARKETING_POINT } from '../../src/ledger/ledger.types';
 import { MarketService } from '../../src/market/market.service';
+import { TradeService } from '../../src/trade/trade.service';
 
 const KEEP = process.argv.includes('--keep');
 
@@ -63,6 +64,7 @@ async function main(): Promise<void> {
   const inventory = app.get(InventoryService);
   const accounts = app.get(AccountService);
   const market = app.get(MarketService);
+  const trade = app.get(TradeService);
   const reconcile = app.get(ReconcileService);
   const expire = app.get(ExpireService);
   const config = app.get(GameConfigService);
@@ -262,18 +264,23 @@ async function main(): Promise<void> {
     // ---------------------------------------------------------------- 期 2~5
     console.log('\n期 2~5 · 交易市场');
 
-    // 总闸：默认全关，写操作必须被拒
-    let gated = false;
-    try {
-      await market.recycle(a, { assetCode: 'cons_toy', qty: 1 }, uniq());
-    } catch {
-      gated = true;
-    }
-    check('市场总闸关闭时写操作被拒（R10）', gated, true);
-
-    // 临时开闸（跑完还原）
+    // 临时开闸（跑完还原成库里原本的值）
     const restore = await openMarket(ds, config);
     try {
+      // 总闸 R10：自己把闸关上再验，而不是假设「库里默认是关的」。
+      // 真实环境 market.enabled 已经是 true，依赖环境默认值的断言会随配置漂移，
+      // 而漂移的表现是「冒烟偶尔红一格」，比没有这项检查更消耗人。
+      // 关/开都在 restore() 的保护范围内，异常退出也不会把线上配置留在关闸状态。
+      await setConfig(ds, config, 'market.enabled', false);
+      let gated = false;
+      try {
+        await market.recycle(a, { assetCode: 'cons_toy', qty: 1 }, uniq());
+      } catch {
+        gated = true;
+      }
+      check('市场总闸关闭时写操作被拒（R10）', gated, true);
+      await setConfig(ds, config, 'market.enabled', true);
+
       // 3a 回收
       const beforeRecycle = await coinOf(a);
       const recycled = await market.recycle(
@@ -379,6 +386,126 @@ async function main(): Promise<void> {
         blocked = true;
       }
       check('扭蛋产出物不可赠送（合规红线）', blocked, true);
+
+      // ---------------------------------------------------------------- 易货
+      // 易货与市场共用 SubjectResolverService。此前易货完全不查资产目录，
+      // 于是 tradable=false 的扭蛋产出可以从这条路自由转手，
+      // 把 gift/listing 上的红线整条绕开。以下四项就是那条绕行路的封堵证明。
+      console.log('\n期 3e · 易货（barter）');
+
+      const t1 = await player();
+      const t2 = await player();
+      await reward.grant(t1, [{ assetCode: 'furn_rug', count: 1 }], {
+        reason: 'compensation',
+        bizKey: `smoke:bt1:${uniq()}`,
+        scope: 'sys',
+      });
+      await reward.grant(t2, [{ assetCode: 'furn_mat', count: 1 }], {
+        reason: 'compensation',
+        bizKey: `smoke:bt2:${uniq()}`,
+        scope: 'sys',
+      });
+
+      // 正常易货必须照常成交 —— 补校验不能把功能本身拦掉
+      const barter = await trade.offer(
+        t1,
+        uniq(),
+        t2,
+        [{ assetCode: 'furn_rug', qty: 1 }],
+        [{ assetCode: 'furn_mat', qty: 1 }],
+        0,
+        0,
+      );
+      await trade.respond(t2, uniq(), barter.offer.id, 'accept');
+      check(
+        '3e 易货成交后 t1 收到对方地垫',
+        await inventory.ownedQty(t1, 'furn_mat'),
+        1,
+      );
+      check(
+        '3e 易货成交后 t2 收到对方地毯',
+        await inventory.ownedQty(t2, 'furn_rug'),
+        1,
+      );
+
+      // 红线一：扭蛋产出物不能作为易货标的
+      await reward.grant(t1, [{ assetCode: 'cons_snack', count: 1 }], {
+        reason: 'compensation',
+        bizKey: `smoke:bts:${uniq()}`,
+        scope: 'sys',
+      });
+      let barterGacha = false;
+      try {
+        await trade.offer(
+          t1,
+          uniq(),
+          t2,
+          [{ assetCode: 'cons_snack', qty: 1 }],
+          [],
+          0,
+          0,
+        );
+      } catch {
+        barterGacha = true;
+      }
+      check('扭蛋产出物不可易货（修复前可绕过）', barterGacha, true);
+
+      // 红线二：货币不能当标的（否则易货就成了汇兑市场）
+      let barterCurrency = false;
+      try {
+        await trade.offer(
+          t1,
+          uniq(),
+          t2,
+          [{ assetCode: MARKETING_POINT, qty: 1 }],
+          [],
+          0,
+          0,
+        );
+      } catch {
+        barterCurrency = true;
+      }
+      check('营销积分不可作为易货标的', barterCurrency, true);
+
+      // 红线三：请求对方并不持有的物品，建单当场失败而不是挂满 24 小时
+      let barterGhost = false;
+      try {
+        await trade.offer(
+          t1,
+          uniq(),
+          t2,
+          [],
+          [{ assetCode: 'furn_window', qty: 1 }],
+          0,
+          0,
+        );
+      } catch {
+        barterGhost = true;
+      }
+      check('对方未持有的标的建单即被拒', barterGhost, true);
+
+      // 红线四：获得冷却（trade_cooldown_hours=72）内的唯一物品不可易货
+      await reward.grant(t1, [{ assetCode: 'acc_bell', count: 1 }], {
+        reason: 'compensation',
+        bizKey: `smoke:btc:${uniq()}`,
+        scope: 'sys',
+      });
+      const [freshInst] = await inventory.listInstances(t1, 'acc_bell');
+      let barterCooldown = false;
+      try {
+        await trade.offer(
+          t1,
+          uniq(),
+          t2,
+          [{ instanceId: freshInst.instanceId }],
+          [],
+          0,
+          0,
+        );
+      } catch {
+        barterCooldown = true;
+      }
+      check('冷却期内唯一物品不可易货', barterCooldown, true);
     } finally {
       // 只还原配置。临时资产定义留给最后的 cleanup 删 ——
       // 它被 item_instance 外键引用着，必须等实例先删掉
@@ -418,6 +545,21 @@ async function main(): Promise<void> {
   process.exit(failures === 0 ? 0 : 1);
 }
 
+/** 写一个配置项并立刻失效缓存（仅冒烟内部用）。 */
+async function setConfig(
+  ds: DataSource,
+  config: GameConfigService,
+  key: string,
+  value: unknown,
+): Promise<void> {
+  await ds.query(
+    `INSERT INTO game_config (key, description, value) VALUES ($1, '冒烟临时覆盖', $2)
+     ON CONFLICT (key) DO UPDATE SET value = $2`,
+    [key, JSON.stringify(value)],
+  );
+  config.invalidate();
+}
+
 /** 临时全档开闸，返回还原函数。 */
 async function openMarket(
   ds: DataSource,
@@ -430,6 +572,7 @@ async function openMarket(
       gift: true,
       listing: true,
       auction: true,
+      trade: true,
     },
     // 冒烟不测风控阈值本身（那是 e2e 的事），这里放宽以免额度把链路打断
     'market.risk': {
@@ -446,13 +589,8 @@ async function openMarket(
       [key],
     );
     before.set(key, rows.length ? rows[0].value : undefined);
-    await ds.query(
-      `INSERT INTO game_config (key, description, value) VALUES ($1, '冒烟临时覆盖', $2)
-       ON CONFLICT (key) DO UPDATE SET value = $2`,
-      [key, JSON.stringify(value)],
-    );
+    await setConfig(ds, config, key, value);
   }
-  config.invalidate();
 
   return async () => {
     for (const [key, original] of before) {
@@ -499,6 +637,19 @@ async function cleanup(ds: DataSource, userIds: string[]): Promise<void> {
     )
   ).map((r) => r.id);
   const all = [...accs, ...sys];
+
+  // 易货单据先于用户删：trade_offer_item 挂在 offer 上，offer 挂在双方 user 上
+  await ds.query(
+    `DELETE FROM trade_offer_item WHERE offer_id IN (
+       SELECT id FROM trade_offer
+        WHERE from_user_id = ANY($1::bigint[]) OR to_user_id = ANY($1::bigint[]))`,
+    [userIds],
+  );
+  await ds.query(
+    `DELETE FROM trade_offer
+      WHERE from_user_id = ANY($1::bigint[]) OR to_user_id = ANY($1::bigint[])`,
+    [userIds],
+  );
 
   for (const table of [
     'promo_redemption',

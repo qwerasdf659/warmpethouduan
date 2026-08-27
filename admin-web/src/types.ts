@@ -233,6 +233,8 @@ export interface MarketStatus {
     gift: boolean;
     listing: boolean;
     auction: boolean;
+    /** 3e 双向易货（barter） */
+    trade: boolean;
   };
   feeBps: number;
   listingHours: number;
@@ -303,6 +305,29 @@ export interface TrendPoint {
 }
 
 /**
+ * 后台外观主题。字段与后端 `AdminThemeSetting` 一一对应，改这里必须同步改
+ * `src/admin/ops/admin-theme.config.ts` 的 Joi schema —— 后端是全量严格校验，
+ * 多一个字段就会整份被拒。
+ */
+export interface AdminThemeSetting {
+  colorPrimary: string;
+  colorSuccess: string;
+  colorWarning: string;
+  colorError: string;
+  colorBgLayout: string;
+  borderRadius: number;
+  /** 仅侧边栏明暗；内容区始终浅色 */
+  siderTheme: 'dark' | 'light';
+  compact: boolean;
+}
+
+export interface AdminThemeView {
+  theme: AdminThemeSetting;
+  modified: boolean;
+  updatedAt: string | null;
+}
+
+/**
  * 资产定义（`asset_def`）。
  *
  * 主键是 `code` 而不是自增 id —— 行式统一账本里「加一种资产」是插一行，
@@ -312,7 +337,7 @@ export interface ItemDefView {
   code: string;
   /** 账本层的资产种类：unique 有身份可编号，stackable 只有数量 */
   kind: 'currency' | 'stackable' | 'unique';
-  type: 'skin' | 'accessory' | 'furniture' | 'consumable' | null;
+  type: 'skin' | 'accessory' | 'furniture' | 'consumable' | 'petpet' | null;
   name: string;
   slot: string | null;
   price: number;
@@ -328,6 +353,19 @@ export interface ItemDefView {
   meta: Record<string, unknown>;
   enabled: boolean;
   sortOrder: number;
+}
+
+/**
+ * 稀有度分档（配置中心 `items.rarities` 的元素）。
+ *
+ * 与后端 `src/items/items.config.ts` 的 `RarityDef` 一一对应。色值只是辅助，
+ * 色盲可达性靠 `borderWidth`——所以别把 color 当成唯一区分手段。
+ */
+export interface RarityDef {
+  key: string;
+  name: string;
+  color: string;
+  borderWidth: number;
 }
 
 export interface GameConfigView {
@@ -409,4 +447,96 @@ export interface PromoRedemptionView {
   pool: 'game' | 'marketing';
   amount: number;
   createdAt: string;
+}
+
+// ------------------------------------------------------------------ 运营活动
+
+/** 活动配置（events）。四类活动共用一张表，差异落在 payload 里。 */
+export interface GameEventView {
+  key: string;
+  name: string;
+  type: 'gacha_pool' | 'shop' | 'task' | 'login';
+  startsAt: string;
+  endsAt: string;
+  banner: string | null;
+  payload: Record<string, unknown> | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 某个活动下单个玩家的参与进度。 */
+export interface GameEventProgressView {
+  id: string;
+  userId: string;
+  eventKey: string;
+  progress: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ------------------------------------------------------------------ 繁殖 / PvP / 诊所 / 小游戏（只读）
+
+/** 繁殖蛋。 */
+export interface EggView {
+  id: string;
+  userId: string;
+  parentAId: string | null;
+  parentBId: string | null;
+  species: string;
+  status: string;
+  hatchAt: string | null;
+  createdAt: string;
+}
+
+/** PvP 天梯排名。 */
+export interface PvpRankView {
+  userId: string;
+  season: string;
+  rankPoint: number;
+  wins: number;
+  losses: number;
+}
+
+/** PvP 对局记录。 */
+export interface PvpMatchView {
+  id: string;
+  season: string;
+  challengerUserId: string;
+  opponentUserId: string;
+  trackKey: string;
+  win: boolean;
+  rankPointDelta: number;
+  rewardCoin: number;
+  createdAt: string;
+}
+
+/** 诊所玩家汇总。 */
+export interface ClinicView {
+  userId: string;
+  star: number;
+  correctCount: number;
+  totalCount: number;
+}
+
+/** 诊所诊断病例。 */
+export interface ClinicCaseView {
+  id: string;
+  userId: string;
+  conditionKey: string;
+  status: string;
+  correct: boolean;
+  rewardCoin: number;
+  createdAt: string;
+}
+
+/** 小游戏对局。 */
+export interface MinigameSessionView {
+  id: string;
+  userId: string;
+  gameKey: string;
+  status: string;
+  score: number;
+  rewardCoin: number;
+  settledAt: string | null;
 }

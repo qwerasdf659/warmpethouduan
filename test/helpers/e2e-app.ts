@@ -1,11 +1,12 @@
 import { Server } from 'node:http';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import Redis from 'ioredis';
 import { JwtService } from '@nestjs/jwt';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../../src/app.module';
-import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
+import { configureApp } from '../../src/bootstrap';
 import { REDIS_CLIENT } from '../../src/redis/redis.module';
 import { hashPassword } from '../../src/admin/utils/password.util';
 import { GameConfigService } from '../../src/config/game-config.service';
@@ -41,16 +42,11 @@ export class E2eApp {
       imports: [AppModule],
     }).compile();
 
-    const app = moduleRef.createNestApplication();
-    // 与 main.ts 保持一致，否则 e2e 测到的校验/错误格式与线上不同
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-      }),
-    );
-    app.useGlobalFilters(new AllExceptionsFilter());
+    const app = moduleRef.createNestApplication<NestExpressApplication>();
+    // 复用 main.ts 的同一份装配（安全头 / body 解析 / 校验 / 异常 / ws 适配器）。
+    // 这里曾经手抄一份，漏了 useBodyParser，于是「线上解析不了 application/json」
+    // 这种整站级故障在 e2e 全绿时依然存在。装配只能有一份。
+    configureApp(app);
     await app.init();
 
     return new E2eApp(
@@ -80,7 +76,8 @@ export class E2eApp {
     );
     const userId = rows[0].id;
     this.userIds.push(userId);
-    const token = await this.jwt.signAsync({ sub: userId, openid });
+    // 与 AuthService.issueToken 同形：载荷只有 sub
+    const token = await this.jwt.signAsync({ sub: userId });
     return { userId, openid, token };
   }
 
@@ -173,6 +170,26 @@ export class E2eApp {
       reason: 'compensation',
       // 每次调用一个新键：同一用例里可能连续加两次钱，共用键会命中幂等回放
       bizKey: `e2e:fund:${userId}:${this.fundSeq++}`,
+      scope: 'sys',
+    });
+  }
+
+  /**
+   * 发放任意资产（可堆叠道具或唯一物品）。
+   *
+   * 与 `fundWallet` 一样走 `RewardService.grant` 而不是直接压表，理由同上：
+   * 余额是批次的聚合缓存，绕过记账入口造的数据会让对账不变量 2/3/9 自己挂掉。
+   * 唯一物品会按 `trade_cooldown_hours` 落 `tradable_after = now()+72h`，
+   * 需要立刻可交易的用例得自己把它拨到过去。
+   */
+  async grantAssets(
+    userId: string,
+    assets: { assetCode: string; count: number }[],
+  ): Promise<void> {
+    if (assets.length === 0) return;
+    await this.app.get(RewardService).grant(userId, assets, {
+      reason: 'compensation',
+      bizKey: `e2e:grant:${userId}:${this.fundSeq++}`,
       scope: 'sys',
     });
   }
@@ -284,6 +301,24 @@ export class E2eApp {
       // 顺序即外键顺序：这些表都直接引用 user，故只需保证 user 最后删。
       // 新增引用 user 的表必须登记到这里，否则删 user 会被外键拦住，
       // 整个 e2e 会从「跑完自清」退化成「往开发库里堆垃圾」。
+      // 玩法扩展新表（pvp_match / home_like / trade_offer 用非 user_id 列，单独删）
+      await this.db.query(
+        `DELETE FROM pvp_match WHERE challenger_user_id = $1 OR opponent_user_id = $1`,
+        [userId],
+      );
+      await this.db.query(
+        `DELETE FROM home_like WHERE from_user_id = $1 OR to_user_id = $1`,
+        [userId],
+      );
+      await this.db.query(
+        `DELETE FROM trade_offer_item WHERE offer_id IN
+           (SELECT id FROM trade_offer WHERE from_user_id = $1 OR to_user_id = $1)`,
+        [userId],
+      );
+      await this.db.query(
+        `DELETE FROM trade_offer WHERE from_user_id = $1 OR to_user_id = $1`,
+        [userId],
+      );
       for (const table of [
         'promo_redemption',
         'gacha_draw',
@@ -295,6 +330,15 @@ export class E2eApp {
         'pet_equip',
         'race_record',
         'daily',
+        // 玩法扩展：带 user_id 列的新表（顺序在 pet 之前，pet_condition/egg/trick 引用 pet）
+        'pet_condition',
+        'pet_egg',
+        'pet_trick',
+        'pvp_rank',
+        'clinic_case',
+        'clinic',
+        'minigame_session',
+        'event_progress',
         'pet',
       ]) {
         await this.db.query(`DELETE FROM ${table} WHERE user_id = $1`, [

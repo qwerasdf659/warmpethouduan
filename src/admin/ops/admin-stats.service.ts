@@ -3,7 +3,11 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, MoreThanOrEqual, Repository } from 'typeorm';
 import { ClockService } from '../../common/clock/clock.service';
 import { rowsOf } from '../../common/db/query-result';
-import { startOfBusinessDay } from '../../common/time/business-day';
+import {
+  BUSINESS_TZ,
+  businessDayKey,
+  startOfBusinessDay,
+} from '../../common/time/business-day';
 import { User } from '../../entities/user.entity';
 import { Pet } from '../../entities/pet.entity';
 import { RedeemOrder } from '../../entities/redeem-order.entity';
@@ -87,7 +91,7 @@ export class AdminStatsService {
     const from = new Date(
       startOfBusinessDay(now).getTime() - (capped - 1) * 86_400_000,
     );
-    const TZ = 'Asia/Shanghai';
+    const TZ = BUSINESS_TZ;
 
     const newRows = await this.users
       .createQueryBuilder('u')
@@ -118,9 +122,9 @@ export class AdminStatsService {
     const points: TrendPoint[] = [];
     for (let i = 0; i < capped; i++) {
       const d = new Date(from.getTime() + i * 86_400_000);
-      // 用东八区日历日键
-      const shifted = new Date(d.getTime() + 8 * 3_600_000);
-      const key = `${shifted.getUTCFullYear()}${`${shifted.getUTCMonth() + 1}`.padStart(2, '0')}${`${shifted.getUTCDate()}`.padStart(2, '0')}`;
+      // 必须与上面两条 SQL 的 to_char(... AT TIME ZONE TZ) 完全同口径，
+      // 否则补零的那些天会对不上键、整条曲线静默塌成 0
+      const key = businessDayKey(d);
       points.push({
         day: key,
         newUsers: newMap.get(key) ?? 0,

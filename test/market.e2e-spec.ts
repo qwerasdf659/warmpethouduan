@@ -32,6 +32,7 @@ describe('交易市场 (e2e, 连真库)', () => {
       gift: true,
       listing: true,
       auction: true,
+      trade: true,
     },
     'market.risk': {
       minAccountAgeDays: 7,
@@ -164,6 +165,7 @@ describe('交易市场 (e2e, 连真库)', () => {
             gift: false,
             listing: false,
             auction: false,
+            trade: false,
           },
         },
         async () => {

@@ -1,6 +1,16 @@
 export default () => ({
   env: process.env.NODE_ENV ?? 'development',
+  // 监听端口。对齐 DevBox 暴露端口（本项目 8080）
   port: parseInt(process.env.PORT ?? '8080', 10),
+  /*
+   * 运行时装配用的两项（`bootstrap.ts` 消费）。
+   *
+   * 放进 configuration 而不是在 bootstrap 里直接读 process.env：裸读会绕开
+   * ConfigModule 的 Joi 校验，于是 `CSP_MODE=enfoce` 这种拼写错误不会在启动时
+   * 被拦下，而是安静地退化成默认档——安全配置最忌讳的就是「配错了也不报错」。
+   */
+  trustProxyHops: parseInt(process.env.TRUST_PROXY_HOPS ?? '1', 10),
+  cspMode: process.env.CSP_MODE ?? 'report-only',
   db: {
     host: process.env.DB_HOST,
     port: parseInt(process.env.DB_PORT ?? '5432', 10),
@@ -53,6 +63,19 @@ export default () => ({
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+  },
+  game: {
+    // 游戏前端（Unity WebGL 导出）托管域的 CORS 白名单，逗号分隔。
+    // 与 admin.corsOrigins 分开配置：二者用途不同，避免把后台域和游戏域混为一谈。
+    // 原生 Unity 无需配置（不走 CORS）。
+    corsOrigins: (process.env.GAME_CORS_ORIGINS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    // 通用登录（设备/账号）总开关。默认开启，让非微信平台（Unity 原生/Steam 等）能取得 JWT；
+    // 纯微信小游戏部署可置 false 收紧攻击面，仅保留微信 code 登录。
+    genericLoginEnabled:
+      (process.env.AUTH_GENERIC_LOGIN_ENABLED ?? 'true') !== 'false',
   },
   wechat: {
     appid: process.env.WECHAT_APPID,

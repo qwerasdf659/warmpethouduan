@@ -16,9 +16,9 @@ export type AssetKind = 'currency' | 'stackable' | 'unique';
 
 /** 表现层字段。账本层不解释它们，只有目录/商店/家园读。 */
 export interface AssetMeta {
-  /** 表现层分类：skin | accessory | furniture | consumable（货币无此字段） */
-  itemType?: 'skin' | 'accessory' | 'furniture' | 'consumable';
-  /** 换装槽位（body/hat/neck/bg） */
+  /** 表现层分类：skin | accessory | furniture | consumable | petpet（货币无此字段） */
+  itemType?: 'skin' | 'accessory' | 'furniture' | 'consumable' | 'petpet';
+  /** 换装槽位（body/hat/neck/bg/pet） */
   slot?: string | null;
   /** 售价（0 = 免费/不可售） */
   price?: number;
@@ -28,11 +28,20 @@ export interface AssetMeta {
   comfort?: number;
   gridW?: number;
   gridH?: number;
+  /** P2/P8 被动加成。只允许收益与衰减类键，不得含 speed/endurance */
+  bonus?: {
+    offlineRate?: number;
+    expGain?: number;
+    raceScore?: number;
+    moodDecay?: number;
+  };
+  /** P8 稀有度 key（对齐 items.rarities） */
+  rarity?: string;
   [k: string]: unknown;
 }
 
 /**
- * 资产定义（替代旧 `item_def`）。行式统一账本的配置源：新增币种是插一行，不是加一列。
+ * 资产定义。行式统一账本的配置源：新增币种是插一行，不是加一列。
  *
  * 账本层只关心 `kind`、三个合规开关、过期与限量；`slot`/`comfort`/`grid_*`/`price`
  * 等表现层字段一律收进 `meta`——它们变化频繁且只有渲染层读，放进列会让这张表

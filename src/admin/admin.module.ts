@@ -7,6 +7,7 @@ import { AdminRole } from '../entities/admin-role.entity';
 import { AdminPermission } from '../entities/admin-permission.entity';
 import { AdminMenu } from '../entities/admin-menu.entity';
 import { AdminAuditLog } from '../entities/admin-audit-log.entity';
+import { AdminSetting } from '../entities/admin-setting.entity';
 import { User } from '../entities/user.entity';
 import { Pet } from '../entities/pet.entity';
 import { RedeemOrder } from '../entities/redeem-order.entity';
@@ -14,11 +15,20 @@ import { AssetDef } from '../entities/asset-def.entity';
 import { PromoCode } from '../entities/promo-code.entity';
 import { PromoRedemption } from '../entities/promo-redemption.entity';
 import { GameConfig } from '../entities/game-config.entity';
+import { GameEvent } from '../entities/game-event.entity';
+import { EventProgress } from '../entities/event-progress.entity';
+import { PetEgg } from '../entities/pet-egg.entity';
+import { PvpRank } from '../entities/pvp-rank.entity';
+import { PvpMatch } from '../entities/pvp-match.entity';
+import { Clinic } from '../entities/clinic.entity';
+import { ClinicCase } from '../entities/clinic-case.entity';
+import { MinigameSession } from '../entities/minigame-session.entity';
 import { PetModule } from '../pet/pet.module';
 import { EconomyModule } from '../economy/economy.module';
 import { LedgerModule } from '../ledger/ledger.module';
 import { ItemsModule } from '../items/items.module';
 import { MarketModule } from '../market/market.module';
+import { TradingModule } from '../trading/trading.module';
 import { AdminPlayersService } from './ops/admin-players.service';
 import { AdminPlayersController } from './ops/admin-players.controller';
 import { AdminIdempotencyService } from './ops/admin-idempotency.service';
@@ -29,6 +39,8 @@ import { AdminStatsService } from './ops/admin-stats.service';
 import { AdminStatsController } from './ops/admin-stats.controller';
 import { AdminConfigService } from './ops/admin-config.service';
 import { AdminConfigController } from './ops/admin-config.controller';
+import { AdminThemeService } from './ops/admin-theme.service';
+import { AdminThemeController } from './ops/admin-theme.controller';
 import { AdminItemsService } from './ops/admin-items.service';
 import { AdminItemsController } from './ops/admin-items.controller';
 import { AdminMarketService } from './ops/admin-market.service';
@@ -55,6 +67,10 @@ import { AdminMenuController } from './rbac/admin-menu.controller';
 import { AdminUserService } from './rbac/admin-user.service';
 import { AdminUserController } from './rbac/admin-user.controller';
 import { AdminBootstrapService } from './admin-bootstrap.service';
+import { AdminEventController } from '../event/admin-event.controller';
+import { AdminEventService } from '../event/admin-event.service';
+import { AdminPlayExpController } from './ops/admin-playexp.controller';
+import { AdminPlayExpService } from './ops/admin-playexp.service';
 
 /**
  * 后台管理域（RBAC + 审计）。与玩家端 AuthModule 完全隔离：
@@ -71,6 +87,7 @@ import { AdminBootstrapService } from './admin-bootstrap.service';
       AdminPermission,
       AdminMenu,
       AdminAuditLog,
+      AdminSetting,
       User,
       Pet,
       RedeemOrder,
@@ -78,6 +95,14 @@ import { AdminBootstrapService } from './admin-bootstrap.service';
       GameConfig,
       PromoCode,
       PromoRedemption,
+      GameEvent,
+      EventProgress,
+      PetEgg,
+      PvpRank,
+      PvpMatch,
+      Clinic,
+      ClinicCase,
+      MinigameSession,
     ]),
     PetModule,
     // 后台补发装扮/家具走 ItemsService.grant
@@ -85,6 +110,10 @@ import { AdminBootstrapService } from './admin-bootstrap.service';
     EconomyModule,
     LedgerModule,
     MarketModule,
+    // AdminMarketService 直接注入 TradeRiskService（净流出风控视图）。
+    // MarketModule 虽然 import 了 TradingModule，但只 exports MarketService，
+    // 不会把 TradeRiskService 透传出来，这里必须自己 import。
+    TradingModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -105,10 +134,13 @@ import { AdminBootstrapService } from './admin-bootstrap.service';
     AdminWalletController,
     AdminStatsController,
     AdminConfigController,
+    AdminThemeController,
     AdminItemsController,
     AdminMarketController,
     AdminExchangeController,
     AdminPromoController,
+    AdminEventController,
+    AdminPlayExpController,
   ],
   providers: [
     AdminAuthService,
@@ -124,10 +156,13 @@ import { AdminBootstrapService } from './admin-bootstrap.service';
     AdminWalletService,
     AdminStatsService,
     AdminConfigService,
+    AdminThemeService,
     AdminItemsService,
     AdminMarketService,
     AdminExchangeService,
     AdminPromoService,
+    AdminEventService,
+    AdminPlayExpService,
     AdminBootstrapService,
     AdminJwtAuthGuard,
     RolesGuard,

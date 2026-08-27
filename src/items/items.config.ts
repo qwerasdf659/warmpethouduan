@@ -34,7 +34,45 @@ const DEFAULT_CONSUMABLES: ConsumableTable = {
 /** 单项增益上界 100：状态值本身就是 0~100，给到 100 已是「一口喂满」。 */
 const gain = Joi.number().integer().min(1).max(100);
 
+/**
+ * 稀有度分档（P8）。稀有度落 `asset_def.meta.rarity`（jsonb），色板与边框规则在此。
+ * 颜色不能是唯一区分手段（色盲可达性），故同时给 borderWidth。
+ */
+export interface RarityDef {
+  key: string;
+  name: string;
+  color: string;
+  borderWidth: number;
+}
+
+const DEFAULT_RARITIES: RarityDef[] = [
+  { key: 'common', name: '普通', color: '#7D7791', borderWidth: 2 },
+  { key: 'uncommon', name: '优秀', color: '#6DDF9C', borderWidth: 2 },
+  { key: 'rare', name: '稀有', color: '#7AC8FF', borderWidth: 3 },
+  { key: 'epic', name: '史诗', color: '#C89BFF', borderWidth: 3 },
+  { key: 'legendary', name: '传说', color: '#FFD166', borderWidth: 4 },
+];
+
 export const ITEMS_CONFIG = {
+  'items.rarities': defineConfig<RarityDef[]>({
+    description:
+      '稀有度分档：色值与边框粗细。key 供 asset_def.meta.rarity 引用，颜色仅作辅助（色盲可达性靠 borderWidth）',
+    default: DEFAULT_RARITIES,
+    schema: Joi.array()
+      .min(1)
+      .items(
+        strictObject({
+          key: Joi.string().max(24).required(),
+          name: Joi.string().max(16).required(),
+          color: Joi.string()
+            .pattern(/^#[0-9A-Fa-f]{6}$/)
+            .required(),
+          borderWidth: nonNegInt.max(8).required(),
+        }),
+      )
+      .required(),
+  }),
+
   'items.consumables': defineConfig<ConsumableTable>({
     description:
       '消耗品使用效果（itemKey → 增益）。键必须与 asset_def 中 meta.itemType=consumable 的资产 code 一致',

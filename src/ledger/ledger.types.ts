@@ -7,9 +7,9 @@ export type { SystemCode, TxnKind, InstanceState };
 /**
  * 账本内置的两个货币资产 code。
  *
- * 双池「物理隔离、永不互转」的约束从旧 `wallet` 的两列变成了两个 `asset_def` 行：
- * 隔离不再靠列名，而是靠「没有任何一张凭证会同时出现这两个 code 且求和为 0」
- * —— 转移凭证按资产分组各自平衡，跨资产兑换必须显式走 `burn` + `issue`。
+ * 双池「物理隔离、永不互转」不靠列名保证，而是靠「没有任何一张凭证会同时出现
+ * 这两个 code 且求和为 0」—— 转移凭证按资产分组各自平衡，
+ * 跨资产兑换必须显式走 `burn` + `issue`，于是不存在隐式汇率。
  */
 export const GAME_COIN = 'game_coin';
 export const MARKETING_POINT = 'marketing_point';
@@ -46,6 +46,17 @@ export const LEDGER_REASONS = [
   'market_settle', // 成交分账（含手续费腿）
   'bid_freeze', // 出价冻结资金
   'bid_refund', // 被超越 / 流拍解冻
+  // ---- 玩法扩展（期 6+）：均为凭空产出/消耗或玩家间转移，故都不进 BAN_EXEMPT
+  'cure', // 治疗扣药/扣币（P1）
+  'breed', // 繁殖扣币（P3）
+  'pvp', // 异步 PvP 结算奖励（P4）
+  'clinic', // 兽医接诊收益（P7）
+  'fusion', // 融合凭证（P8，宠物非账本资产，记 0 金额可追溯凭证）
+  'visit', // 家园访问点赞发币（P9）
+  'minigame', // 小游戏结算奖励（P11）
+  'event', // 限时活动奖励（P12）
+  'training', // 技巧表演收益（P13）
+  'trade_offer', // 双向易货冻结/成交
 ] as const;
 export type LedgerReason = (typeof LEDGER_REASONS)[number];
 
@@ -132,8 +143,6 @@ export interface PostInput {
   instanceBurns?: InstanceBurn[];
   refType?: string;
   refId?: string | null;
-  /** 冲正时指向原凭证 */
-  reversalOf?: string;
 }
 
 export interface BalanceView {

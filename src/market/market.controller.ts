@@ -16,7 +16,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Idempotent } from '../common/idempotency/idempotent.decorator';
 import { IdempotencyInterceptor } from '../common/idempotency/idempotency.interceptor';
 import { MarketService } from './market.service';
-import type { Subject } from './market.types';
+import type { Subject } from '../trading/trading.types';
 import {
   BidDto,
   BizIdDto,

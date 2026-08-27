@@ -42,7 +42,7 @@ export class RaceController {
     return this.race.settle(user.userId, dto.raceId);
   }
 
-  /** 看广告奖励翻倍（需先 `POST /ad/token` 领 scene=race_double 的凭证）。 */
+  /** 看广告奖励翻倍（需先 `POST /boost/ad/token` 领 scene=race_double 的凭证）。 */
   @Post('reward/double')
   @Idempotent()
   @UseInterceptors(IdempotencyInterceptor)
@@ -50,7 +50,7 @@ export class RaceController {
     return this.race.doubleReward(user.userId, dto.raceId, dto.adToken);
   }
 
-  /** 看广告复活重跑（需先 `POST /ad/token` 领 scene=race_revive 的凭证）。 */
+  /** 看广告复活重跑（需先 `POST /boost/ad/token` 领 scene=race_revive 的凭证）。 */
   @Post('revive')
   @Idempotent()
   @UseInterceptors(IdempotencyInterceptor)

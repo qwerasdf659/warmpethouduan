@@ -26,7 +26,7 @@
 
 | 模块     | 目录           | 说明                                                                                         |
 | -------- | -------------- | -------------------------------------------------------------------------------------------- |
-| 鉴权     | `src/auth`     | 微信 `code2Session` 登录 → 自签 JWT                                                          |
+| 鉴权     | `src/auth`     | 微信 `code2Session` / 设备 / 账号密码三种登录，殊途同归签同一份 JWT（载荷只含 `sub`）        |
 | 宠物     | `src/pet`      | 四动作照顾（feed/bath/pet/play）+ 惰性衰减结算 + 成长 + 多宠 + 离线收益                      |
 | **账本** | `src/ledger`   | 行式统一账本：货币 / 可堆叠道具 / 唯一实例同一套凭证与分录。唯一写入口 `LedgerService`，产出出口 `RewardService` |
 | 经济     | `src/economy`  | 货币视角门面（`WalletView` 出参形状）+ 每日对账 11 项不变量                                  |
@@ -50,18 +50,17 @@
 
 - **凭证** `asset_txn` 是幂等唯一权威；**分录** `asset_entry` 按月分区、只追加、永不物理删除（归档只允许 `DETACH PARTITION` + 转储，保留回档能力）。
 - `issue` / `burn` 单边不要求平衡（发行与销毁本就是凭空产生与消失）；`transfer` 按资产求和必须为 0；`freeze` 在可用与冻结之间守恒。
-- 交易市场默认**全关**（`market.enabled` + 四个分档开关），需在后台逐档打开。
-
-详见 `docs/账本与交易系统架构设计.md`。
+- 交易市场由 `market.enabled` 总闸 + 分档开关控制，可在后台逐档开关。当前生效值以 `npm run audit` 的输出为准。
 
 ## 目录约定
 
 - `src/entities/*.entity.ts`：所有实体（CLI DataSource 用 glob 登记，**新增实体禁止只登记到 `app.module.ts`**，否则 `migration:generate` 会把该表当「多余表」生成 `DROP TABLE`）。
-- `src/migrations/*.ts`：迁移文件（`Baseline` + `LedgerRefactor` + `GachaRemoveCoinPayout` 三条）。
-- `src/common`：基础设施三件套（`ClockService` / `LockService` / `IdempotencyInterceptor`，全局）。
+- `src/migrations/*.ts`：迁移文件。条数与应用状态以 `npm run audit` 的输出为准，不在此罗列（列了就会过期）。
+- `src/common`：全局基础设施（`ClockService` / `LockService` / `IdempotencyInterceptor` / `CspReportService`）。
 - `scripts/dev/*.ts`：联调数据工具（播种 / 清理 / 清档 / 体检 / 冒烟），用 `ts-node -T -P scripts/tsconfig.json` 跑。
+- `scripts/ops/*.ts`：**生产**运维工具（当前是分录归档 `archive:entries`）。与 `scripts/dev/` 的区别是刻意的：dev 那批带 `refuseInProduction` 守卫，ops 这批本来就要在生产跑，故默认 dry-run + 需输入确认短语。
 - `admin-web/`：运营后台前端（独立 pnpm 工程，`pnpm build` 产物挂 `/console`）。
-- `docs/`：项目文档（宠物功能详细规格 / 账本与交易系统架构设计 / 待办执行清单 / 安全与运维加固清单）。
+- `docs/`：项目文档（当前只有《玩法扩展设计》）。
 
 ## 环境变量
 
@@ -178,6 +177,6 @@ npm run wipe:pre-launch -- --execute     # 真删（需手输「确认清档」�
 `exchange`、`promo`、`stats`、`audit-logs`、`idempotency`、`admin-users`、`roles`、
 `permissions`、`menus`
 
-> 装扮曾挂 `/wardrobe`、看广告曾挂 `/ad`、体力曾挂 `/stamina`、收货地址曾挂 `/address`，
-> 后台登录曾挂 `/auth/admin`——这些**旧路径已全部移除且不做兼容**，
-> 客户端须按上表调用。改动原委见 `docs/待办执行清单.md` 的「R 轮：路由收缩」。
+> 一个模块一个顶级前缀：装扮在 `/items/wardrobe`、看广告与体力在 `/boost/*`、
+> 收货地址在 `/exchange/address`、后台登录在 `/admin/auth/login`。
+> 不提供任何兼容别名，客户端按上表调用。
