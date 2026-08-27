@@ -1,0 +1,160 @@
+#
+# 与本地 `npm run verify` 同一套命令、同一套阈值，只是拆成两个 job 并行。
+#
+# 拆分的理由：后端 job 需要 PostgreSQL + Redis 服务容器，前端 job 需要 pnpm，
+# 两边装的东西完全不同；合成一个 job 会让改前端也要等数据库起来。
+#
+# ⚠ 一致性约束：这里的命令必须与 `package.json` 的 `verify` / `verify:web` 保持同步。
+# 三处（lint-staged、verify、本文件）范围不一致就等于「本地过了、CI 挂了」，
+# 或更糟的「CI 过了、线上挂了」。加检查项时请三处一起改。
+#
+# 限流不需要为 CI 放宽：`@nestjs/throttler` 按「每 IP 每端点」分桶，
+# 整轮 e2e 里最忙的桶只到 22 次，离默认上限 100 很远。
+#
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 同一分支的新推送取消旧运行：e2e 连真库，两份并行跑会互相踩数据
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: 后端（lint / 类型 / 循环依赖 / 单测 / e2e）
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: warmpet_ci
+        ports:
+          - 5432:5432
+        # 没有 health check 的话，migration:run 会在库还没起来时就连过去
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      TZ: Asia/Shanghai
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: warmpet_ci
+      REDIS_URL: redis://localhost:6379
+      # 仅 CI 用的占位值。JWT_SECRET 有 min(16) 校验，短了启动就会被 Joi 拦下
+      JWT_SECRET: ci-only-secret-not-a-real-key
+      WECHAT_APPID: wx_ci_placeholder
+      WECHAT_SECRET: ci_placeholder_secret
+      # e2e 自己签发 JWT，不走微信；这里显式关掉假登录，让 CI 跑的是生产同一条鉴权路径
+      WECHAT_MOCK_LOGIN: 'false'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint（--max-warnings 0，与 husky/prebuild 同一闸）
+        run: npm run lint:check
+
+      - name: 类型检查（strict 全开）
+        run: npx tsc --noEmit
+
+      - name: 循环依赖
+        run: npm run check:circular
+
+      - name: 单元测试（含覆盖率阈值）
+        run: npx jest --silent --coverage
+
+      # 表结构一律走迁移，synchronize 永远是 false，所以空库必须先跑迁移。
+      # 这一步顺带守住了「迁移能在空库上从零跑通」——本地开发只会跑增量。
+      - name: 迁移（空库从零应用）
+        run: npm run migration:run
+
+      - name: e2e（连真库真 Redis）
+        run: npm run test:e2e
+
+      # 实体与迁移漂移检查。放在 e2e 之后，因为它要的是「迁移已全部应用」的库状态。
+      #
+      # ⚠ 退出码是反的，别照直觉写：`migration:generate` 在**发现差异**时生成文件并
+      # 退出 0，在**没有差异**时反而退出 1（它把「无可生成」当错误）。
+      # 所以这里判的是输出里那句 "No changes"，而不是退出码。
+      - name: 无 drift 检查（实体与迁移一致）
+        run: |
+          set +e
+          out=$(npm run migration:generate -- src/migrations/DriftProbe 2>&1)
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ] && echo "$out" | grep -q 'No changes in database schema were found'; then
+            echo '实体与迁移一致，无 drift'
+            exit 0
+          fi
+          if [ "$code" -eq 0 ]; then
+            echo '::error::实体与迁移存在漂移，migration:generate 生成了非空迁移：'
+            cat src/migrations/*DriftProbe.ts
+          else
+            echo '::error::drift 检查本身失败（非「无差异」）：'
+            echo "$out"
+          fi
+          exit 1
+
+  web:
+    name: 后台控制台（lint / 类型 / 单测 / 构建）
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: admin-web/pnpm-lock.yaml
+
+      - name: 安装依赖
+        run: pnpm --dir admin-web install --frozen-lockfile
+
+      # 与 `npm run verify:web` 同三步：biome lint + prettier check、tsc、vitest
+      - name: Lint 与类型检查
+        run: |
+          pnpm --dir admin-web lint
+          pnpm --dir admin-web typecheck
+
+      - name: 单元测试
+        run: pnpm --dir admin-web test
+
+      # 构建必须进 CI：C 节那轮格式重排改了 32 个手写文件，
+      # 「lint 过了但构建挂了」是这类改动最典型的失败形态
+      - name: 构建
+        run: pnpm --dir admin-web build

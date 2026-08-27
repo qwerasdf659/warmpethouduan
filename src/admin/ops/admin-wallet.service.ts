@@ -1,15 +1,36 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
+import { rowsOf } from '../../common/db/query-result';
 import { EconomyService, WalletView } from '../../economy/economy.service';
 import { User } from '../../entities/user.entity';
 import { LedgerService } from '../../ledger/ledger.service';
 import {
   GrantWalletBulkDto,
   GrantWalletDto,
+  QueryDailyStatsDto,
   QueryLedgerDto,
   ReverseTxnDto,
 } from './dto/wallet-admin.dto';
+
+/** 发行日报的一行：某天某资产某原因的发行与销毁量。 */
+export interface DailyAssetStat {
+  statDay: string;
+  assetCode: string;
+  reason: string;
+  issued: number;
+  burned: number;
+  /** 净发行 = 发行 − 销毁。持续为正即通胀 */
+  net: number;
+}
+
+/** 按资产汇总的发行口径（通胀总览）。 */
+export interface AssetIssuanceSummary {
+  assetCode: string;
+  issued: number;
+  burned: number;
+  net: number;
+}
 
 /**
  * 后台钱包运营：全局流水查询 + 人工发币/扣币。
@@ -18,11 +39,91 @@ import {
 @Injectable()
 export class AdminWalletService {
   constructor(
+    @InjectDataSource() private readonly ds: DataSource,
     private readonly economy: EconomyService,
     private readonly ledger: LedgerService,
     @InjectRepository(User)
     private readonly users: Repository<User>,
   ) {}
+
+  /**
+   * 发行/销毁日报（读 `asset_daily_stat`，由每日对账物化）。
+   *
+   * 一表三用：**通胀监控**（数值策划看某资产的净发行趋势）、
+   * **刷币外挂告警**（某个 reason 的产出突增）、
+   * **待兑付负债**（`marketing_point` 的累计发行 − 兑付）。
+   *
+   * 为什么不实时从分录求和：`issue`/`burn` 是单边凭证、不守恒，
+   * 「本月发了多少币」在分录里表现为一堆正数和一堆负数混在一起，
+   * 而财务要的是分开的两个口径 —— 那正是这张物化表存在的理由。
+   */
+  async dailyStats(q: QueryDailyStatsDto): Promise<{
+    list: DailyAssetStat[];
+    summary: AssetIssuanceSummary[];
+    days: number;
+  }> {
+    const days = q.days ?? 30;
+    const params: unknown[] = [days];
+    let where = `"stat_day" >= (now() AT TIME ZONE 'Asia/Shanghai')::date - $1::int`;
+    if (q.assetCode) {
+      params.push(q.assetCode);
+      where += ` AND "asset_code" = $${params.length}`;
+    }
+    if (q.reason) {
+      params.push(q.reason);
+      where += ` AND "reason" = $${params.length}`;
+    }
+
+    const rows = rowsOf<{
+      stat_day: Date;
+      asset_code: string;
+      reason: string;
+      issued: string;
+      burned: string;
+    }>(
+      await this.ds.query(
+        `SELECT "stat_day","asset_code","reason","issued","burned"
+           FROM "asset_daily_stat"
+          WHERE ${where}
+          ORDER BY "stat_day" DESC, "asset_code", "reason"`,
+        params,
+      ),
+    );
+
+    const list = rows.map((r) => {
+      const issued = Number(r.issued);
+      const burned = Number(r.burned);
+      return {
+        // stat_day 是 date 列，pg 驱动给回 Date；只取日历日，避免时区把日期挪一天
+        statDay: new Date(r.stat_day).toISOString().slice(0, 10),
+        assetCode: r.asset_code,
+        reason: r.reason,
+        issued,
+        burned,
+        net: issued - burned,
+      };
+    });
+
+    const byAsset = new Map<string, AssetIssuanceSummary>();
+    for (const r of list) {
+      const cur = byAsset.get(r.assetCode) ?? {
+        assetCode: r.assetCode,
+        issued: 0,
+        burned: 0,
+        net: 0,
+      };
+      cur.issued += r.issued;
+      cur.burned += r.burned;
+      cur.net += r.net;
+      byAsset.set(r.assetCode, cur);
+    }
+
+    return {
+      list,
+      summary: [...byAsset.values()].sort((a, b) => b.net - a.net),
+      days,
+    };
+  }
 
   /** 全局流水分页。 */
   listLedger(q: QueryLedgerDto) {

@@ -6,9 +6,11 @@ import { PetEquip } from '../entities/pet-equip.entity';
 import { LedgerModule } from '../ledger/ledger.module';
 import { HoldingCleanupService } from './holding-cleanup.service';
 import { MarketController } from './market.controller';
+import { MarketQueryService } from './market-query.service';
 import { MarketSettleService } from './market-settle.service';
 import { MarketService } from './market.service';
 import { TradeRiskService } from './trade-risk.service';
+import { TradeSettlementService } from './trade-settlement.service';
 
 /**
  * 交易市场域（架构设计的期 2~5）。
@@ -27,7 +29,9 @@ import { TradeRiskService } from './trade-risk.service';
   controllers: [MarketController],
   providers: [
     MarketService,
+    MarketQueryService,
     TradeRiskService,
+    TradeSettlementService,
     HoldingCleanupService,
     MarketSettleService,
   ],

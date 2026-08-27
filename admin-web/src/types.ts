@@ -182,6 +182,78 @@ export interface ReconcileReport {
   ok: boolean;
 }
 
+/** 发行日报的一行（读 asset_daily_stat，由每日对账物化）。 */
+export interface DailyAssetStat {
+  statDay: string;
+  assetCode: string;
+  reason: string;
+  issued: number;
+  burned: number;
+  /** 净发行 = 发行 − 销毁。持续为正即通胀 */
+  net: number;
+}
+
+/** 按资产汇总的发行口径（通胀总览）。 */
+export interface AssetIssuanceSummary {
+  assetCode: string;
+  issued: number;
+  burned: number;
+  net: number;
+}
+
+/** 市场挂单（后台视图，含已结束的单）。 */
+export interface MarketListing {
+  id: string;
+  sellerUserId: string | null;
+  mode: 'fixed' | 'auction';
+  assetCode: string;
+  assetName: string;
+  qty: number | null;
+  instanceId: string | null;
+  serial: number | null;
+  priceAsset: string;
+  price: number;
+  feeBps: number;
+  status: 'listed' | 'sold' | 'cancelled' | 'expired';
+  expiresAt: string;
+  createdAt: string;
+  topBid: number | null;
+}
+
+/**
+ * 市场当前生效的开关与阈值。
+ *
+ * 排查「玩家说挂不上单」的第一站 —— 市场默认全关，而「关着」与「开着但没人挂单」
+ * 在挂单列表上长得一模一样（都是空列表）。
+ */
+export interface MarketStatus {
+  enabled: boolean;
+  features: {
+    recycle: boolean;
+    gift: boolean;
+    listing: boolean;
+    auction: boolean;
+  };
+  feeBps: number;
+  listingHours: number;
+  recycleRateBps: number;
+  priceBand: { enabled: boolean; minBps: number; maxBps: number };
+  risk: {
+    minAccountAgeDays: number;
+    maxTradesPerDay: number;
+    maxValuePerDay: number;
+    abnormalPriceRatio: number;
+  };
+}
+
+/** R4 单向净流出线索（洗号 / 代练的人工复核清单，不是证据）。 */
+export interface NetFlowAlert {
+  accountId: string;
+  userId: string | null;
+  netOutflow: number;
+  days: number;
+}
+
 /** 幂等记录（Redis 里的 idem:{userId}:{bizId}）。 */
 export interface IdempotencyRecord {
   key: string;

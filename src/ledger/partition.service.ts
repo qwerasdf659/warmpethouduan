@@ -9,6 +9,25 @@ import { rowsOf } from '../common/db/query-result';
 const MONTHS_AHEAD = 12;
 
 /**
+ * 分录在库内保留多少个月。超期的分区应当归档（`DETACH` + 转储对象存储）。
+ *
+ * 24 个月是「运营查两年前的账」与「单表无界增长」之间的折中。这个值只驱动
+ * **告警**，不驱动任何自动删除 —— 归档不可逆，必须由人显式执行，
+ * 见 `scripts/ops/archive-entries.ts`。
+ */
+const RETENTION_MONTHS = 24;
+
+/** 一个可归档的分区。 */
+export interface ArchiveCandidate {
+  table: string;
+  /** 分区覆盖的月份（YYYY-MM） */
+  month: string;
+  rows: number;
+  /** 磁盘占用（人类可读） */
+  size: string;
+}
+
+/**
  * `asset_entry` 的分区维护。
  *
  * 不装 `pg_partman`：多一个扩展依赖，而 Sealos 托管 PG 未必允许安装扩展，
@@ -43,10 +62,73 @@ export class PartitionService implements OnApplicationBootstrap {
   @Cron('30 3 1 * *', { name: 'monthly-partition', timeZone: 'Asia/Shanghai' })
   async monthly(): Promise<void> {
     if ((process.env.NODE_APP_INSTANCE ?? '0') !== '0') return;
-    await this.lock.withLock('partition:monthly', () => this.ensure(), {
-      ttlMs: 300_000,
-      retries: 0,
-    });
+    await this.lock.withLock(
+      'partition:monthly',
+      async () => {
+        await this.ensure();
+        await this.warnIfArchivable();
+      },
+      { ttlMs: 300_000, retries: 0 },
+    );
+  }
+
+  /**
+   * 超出保留窗口的分区（可归档清单）。只读。
+   *
+   * 按分区**名字**推月份而不是查 `pg_get_expr` 解析边界：分区名由本服务统一按
+   * `asset_entry_YYYY_MM` 生成，名字就是权威。`asset_entry_default` 永远不在清单里 ——
+   * 它是兜底分区，没有确定的时间范围，归档它等于把不知哪个月的数据搬走。
+   */
+  async archiveCandidates(
+    keepMonths = RETENTION_MONTHS,
+  ): Promise<ArchiveCandidate[]> {
+    const rows = rowsOf<{
+      table: string;
+      month: string;
+      rows: string;
+      size: string;
+    }>(
+      await this.ds.query(
+        `SELECT c.relname AS table,
+                substring(c.relname from 'asset_entry_(\\d{4}_\\d{2})$') AS month,
+                COALESCE(s.n_live_tup, 0)::text AS rows,
+                pg_size_pretty(pg_total_relation_size(c.oid)) AS size
+           FROM pg_class c
+           LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
+          WHERE c.relkind = 'r'
+            AND c.relname ~ '^asset_entry_\\d{4}_\\d{2}$'
+            AND to_date(substring(c.relname from 'asset_entry_(\\d{4}_\\d{2})$'), 'YYYY_MM')
+                < date_trunc('month', now()) - ($1 || ' months')::interval
+          ORDER BY c.relname`,
+        [keepMonths],
+      ),
+    );
+    return rows.map((r) => ({
+      table: r.table,
+      month: r.month.replace('_', '-'),
+      rows: Number(r.rows),
+      size: r.size,
+    }));
+  }
+
+  /**
+   * 只告警，不动手。
+   *
+   * 归档要 `DETACH` 分区、转储、再决定是否落盘删除，每一步都不可逆；
+   * 而定时任务在无人值守时执行不可逆操作，是「自动化把事情搞坏」的经典形态。
+   * 所以这里的产出是一条运维待办，动手的入口是需要显式确认的脚本。
+   */
+  private async warnIfArchivable(): Promise<void> {
+    const candidates = await this.archiveCandidates();
+    if (candidates.length === 0) return;
+
+    const totalRows = candidates.reduce((a, c) => a + c.rows, 0);
+    this.logger.warn(
+      `有 ${candidates.length} 个分区已超出 ${RETENTION_MONTHS} 个月保留窗口` +
+        `（约 ${totalRows} 行）：${candidates.map((c) => c.month).join(', ')}\n` +
+        `  归档命令：npm run archive:entries -- --keep-months ${RETENTION_MONTHS}\n` +
+        `  归档只允许 DETACH + 转储对象存储，禁止 DELETE（保留回档能力）`,
+    );
   }
 
   /**

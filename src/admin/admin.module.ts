@@ -31,6 +31,8 @@ import { AdminConfigService } from './ops/admin-config.service';
 import { AdminConfigController } from './ops/admin-config.controller';
 import { AdminItemsService } from './ops/admin-items.service';
 import { AdminItemsController } from './ops/admin-items.controller';
+import { AdminMarketService } from './ops/admin-market.service';
+import { AdminMarketController } from './ops/admin-market.controller';
 import { AdminPromoService } from './ops/admin-promo.service';
 import { AdminPromoController } from './ops/admin-promo.controller';
 import { AdminExchangeService } from './ops/admin-exchange.service';
@@ -104,6 +106,7 @@ import { AdminBootstrapService } from './admin-bootstrap.service';
     AdminStatsController,
     AdminConfigController,
     AdminItemsController,
+    AdminMarketController,
     AdminExchangeController,
     AdminPromoController,
   ],
@@ -122,6 +125,7 @@ import { AdminBootstrapService } from './admin-bootstrap.service';
     AdminStatsService,
     AdminConfigService,
     AdminItemsService,
+    AdminMarketService,
     AdminExchangeService,
     AdminPromoService,
     AdminBootstrapService,

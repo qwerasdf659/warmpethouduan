@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ClockService } from '../common/clock/clock.service';
 import { GameConfigService } from '../config/game-config.service';
@@ -176,15 +180,74 @@ describe('TradeRiskService', () => {
     });
   });
 
-  /** R5：只告警不拦截 —— 告警的读者是人，宁可宽松。 */
+  /**
+   * R5：只告警不拦截 —— 告警的读者是人，宁可宽松。
+   *
+   * 基准优先取近 7 日成交中位价，样本不足才退回商店价。这里用 `query` 的返回值
+   * 模拟两种情形，并断言最终落到日志里的基准是哪一个。
+   */
   describe('warnIfAbnormalPrice', () => {
+    /** 让 SQL 返回指定的中位价与样本量。 */
+    const withMedian = (median: number | null, n: number) => {
+      query.mockResolvedValue([
+        { median: median === null ? null : String(median), n: String(n) },
+      ]);
+    };
+
     it('倍率越界只打日志，不抛异常', async () => {
+      withMedian(null, 0);
       await expect(
         svc.warnIfAbnormalPrice('skin_tiger', 1000, 100_000, 'u1'),
       ).resolves.toBeUndefined();
       await expect(
         svc.warnIfAbnormalPrice('skin_tiger', 1000, 1, 'u1'),
       ).resolves.toBeUndefined();
+    });
+
+    it('有足够成交样本时以中位价为基准', async () => {
+      const warn = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+      // 中位价 5000（限量款的市场行情），商店价只有 1000
+      withMedian(5000, 8);
+
+      // 5000 的 9 倍 = 45000，越界（阈值 8）
+      await svc.warnIfAbnormalPrice('skin_aurora', 1000, 45_000, 'u1');
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('近 7 日成交中位价'),
+      );
+
+      warn.mockClear();
+      // 5000 的 4 倍 = 20000，不越界 —— 若拿商店价 1000 当基准会是 20 倍，误报
+      await svc.warnIfAbnormalPrice('skin_aurora', 1000, 20_000, 'u1');
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    /** 一两笔成交算出的「中位价」是噪声，用它当基准会让告警随机地响。 */
+    it('成交样本不足 3 笔时退回商店价', async () => {
+      const warn = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+      withMedian(5000, 2);
+
+      // 退回商店价 1000 为基准 → 20000 是 20 倍，越界
+      await svc.warnIfAbnormalPrice('skin_aurora', 1000, 20_000, 'u1');
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('商店价，成交样本不足'),
+      );
+      warn.mockRestore();
+    });
+
+    it('既无成交样本又无商店价时不告警（无从比较）', async () => {
+      const warn = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+      withMedian(null, 0);
+
+      await svc.warnIfAbnormalPrice('mystery', 0, 999_999, 'u1');
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
     });
   });
 

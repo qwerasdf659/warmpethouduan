@@ -5,6 +5,7 @@ import { AccountService } from './account.service';
 import { AssetCatalogService } from './asset-catalog.service';
 import { ExpireService } from './expire.service';
 import { InventoryService } from './inventory.service';
+import { LedgerQueryService } from './ledger-query.service';
 import { LedgerService } from './ledger.service';
 import { PartitionService } from './partition.service';
 import { RewardService } from './reward.service';
@@ -21,6 +22,7 @@ import { RewardService } from './reward.service';
   providers: [
     AccountService,
     LedgerService,
+    LedgerQueryService,
     RewardService,
     InventoryService,
     AssetCatalogService,

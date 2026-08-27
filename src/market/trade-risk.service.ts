@@ -17,6 +17,14 @@ export interface RiskCheckInput {
   value: number;
 }
 
+/**
+ * 算「近 7 日成交中位价」至少需要几笔成交。
+ *
+ * 一两笔算出来的中位价是噪声，用它当告警基准会让告警随机地响或不响，
+ * 比没有告警更糟。低于这个样本量就退回商店价。
+ */
+const MIN_PRICE_SAMPLES = 3;
+
 export interface NetFlowAlert {
   accountId: string;
   userId: string | null;
@@ -169,23 +177,62 @@ export class TradeRiskService {
    *
    * 与 R6 用两套阈值是有意的：告警宁可宽松，因为它的读者是人；
    * 拦截必须严格，因为它的「读者」是正在挂单的玩家，拦错就是功能不可用。
+   *
+   * **基准优先取近 7 日成交中位价**，样本不足才退回商店价。两者差别很大：
+   * 限量收藏品的市场价可以稳定在商店价的数倍，此时拿商店价当基准会把一整类
+   * 正常挂单持续报成异常 —— 告警一旦开始狼来了，就等于没有告警。
+   * 中位价（而非均价）是因为它对少数极端成交不敏感，而极端成交恰恰是我们要找的东西。
    */
   async warnIfAbnormalPrice(
     assetCode: string,
-    referencePrice: number,
+    shopPrice: number,
     price: number,
     userId: string,
   ): Promise<void> {
     const { abnormalPriceRatio } = await this.config.get('market.risk');
-    if (referencePrice <= 0 || abnormalPriceRatio <= 1) return;
+    if (abnormalPriceRatio <= 1) return;
 
-    const ratio = price / referencePrice;
+    const median = await this.recentMedianPrice(assetCode);
+    const basis = median ?? (shopPrice > 0 ? shopPrice : null);
+    if (basis === null) return;
+
+    const ratio = price / basis;
     if (ratio > abnormalPriceRatio || ratio < 1 / abnormalPriceRatio) {
       this.logger.warn(
         `异常挂单价：user=${userId} asset=${assetCode} price=${price} ` +
-          `参考价=${referencePrice} 倍率=${ratio.toFixed(2)}（疑似站外交易通道）`,
+          `基准=${basis}（${median !== null ? '近 7 日成交中位价' : '商店价，成交样本不足'}）` +
+          ` 倍率=${ratio.toFixed(2)}（疑似站外交易通道）`,
       );
     }
+  }
+
+  /**
+   * 同资产近 7 日成交中位价。样本不足 `MIN_PRICE_SAMPLES` 笔时返回 null。
+   *
+   * 要求最小样本量是必须的：一两笔成交算出来的「中位价」本身就是噪声，
+   * 拿它当基准会让告警随机地响或不响。上线初期没有任何成交，这里恒为 null，
+   * 调用方自然退回商店价。
+   *
+   * 成交时间取的是结算凭证的时间（`settled_txn_id` → `asset_txn.created_at`），
+   * 不是挂单创建时间 —— 一张挂 72 小时才卖掉的单，它的价格属于成交那天的行情。
+   */
+  private async recentMedianPrice(assetCode: string): Promise<number | null> {
+    const rows = rowsOf<{ median: string | null; n: string }>(
+      await this.ds.query(
+        `SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY l."price") AS median,
+                COUNT(*) AS n
+           FROM "market_listing" l
+           JOIN "asset_txn" t ON t."id" = l."settled_txn_id"
+          WHERE l."asset_code" = $1
+            AND l."status" = 'sold'
+            AND t."created_at" >= now() - interval '7 days'`,
+        [assetCode],
+      ),
+    );
+    const row = rows[0];
+    if (!row || row.median === null) return null;
+    if (Number(row.n) < MIN_PRICE_SAMPLES) return null;
+    return Math.round(Number(row.median));
   }
 
   /**

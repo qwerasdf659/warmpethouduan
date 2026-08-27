@@ -20,6 +20,7 @@ import { AdminWalletService } from './admin-wallet.service';
 import {
   GrantWalletBulkDto,
   GrantWalletDto,
+  QueryDailyStatsDto,
   QueryLedgerDto,
   ReverseTxnDto,
 } from './dto/wallet-admin.dto';
@@ -61,6 +62,18 @@ export class AdminWalletController {
   @RequirePermissions('wallet:read')
   reconcile() {
     return this.reconcileService.run();
+  }
+
+  /**
+   * 发行/销毁日报（通胀监控 + 刷币告警 + 待兑付负债）。
+   *
+   * 读的是每日对账物化出来的 `asset_daily_stat`，不实时扫分录 ——
+   * 发行与销毁是单边不守恒的两个口径，实时求和给不出财务要的那两个数。
+   */
+  @Get('daily-stats')
+  @RequirePermissions('wallet:read')
+  dailyStats(@Query() q: QueryDailyStatsDto) {
+    return this.service.dailyStats(q);
   }
 
   /**

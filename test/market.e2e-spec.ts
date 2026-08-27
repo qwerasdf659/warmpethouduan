@@ -1094,6 +1094,96 @@ describe('交易市场 (e2e, 连真库)', () => {
     });
   });
 
+  // ================================================================ 后台运维
+
+  describe('后台强制撤单', () => {
+    /**
+     * 与玩家撤单的唯一区别是不校验归属，其余（退回标的、解冻全部活跃出价、落终态）
+     * 必须完全一致 —— 走的就是同一个 `unwind`。这条用例守的正是「没有走出第二份实现」。
+     */
+    it('不校验归属：退回标的并解冻全部活跃出价', async () => {
+      await e2e.withConfig(OPEN_MARKET, async () => {
+        const seller = await trader();
+        const bidder = await trader(3000);
+        const inst = await giveTradableInstance(seller.userId, 'skin_tiger');
+
+        const listing = await market.list(
+          seller.userId,
+          { instanceId: inst.instanceId },
+          900,
+          'auction',
+          uniq(),
+        );
+        await market.bid(listing.id, bidder.userId, 1000, uniq());
+        expect((await ledger.balances(bidder.userId))[GAME_COIN].frozen).toBe(
+          1000,
+        );
+
+        // 后台不需要知道卖家是谁
+        const res = await market.forceCancel(listing.id, 'e2e 违规挂单');
+        expect(res).toMatchObject({ ok: true, listingId: listing.id });
+
+        expect(await e2e.ownedQty(seller.userId, 'skin_tiger')).toBe(1);
+        expect((await ledger.balances(bidder.userId))[GAME_COIN]).toEqual({
+          available: 3000,
+          frozen: 0,
+        });
+        const rows = await e2e.db.query<{ status: string }[]>(
+          `SELECT status FROM market_listing WHERE id = $1`,
+          [listing.id],
+        );
+        expect(rows[0].status).toBe('cancelled');
+        expect(await violationsFor([seller.userId, bidder.userId])).toEqual([]);
+      });
+    });
+
+    it('已结束的挂单不能再强制撤单', async () => {
+      await e2e.withConfig(OPEN_MARKET, async () => {
+        const seller = await trader();
+        const inst = await giveTradableInstance(seller.userId, 'skin_snow');
+        const listing = await market.list(
+          seller.userId,
+          { instanceId: inst.instanceId },
+          400,
+          'fixed',
+          uniq(),
+        );
+        await market.cancel(listing.id, seller.userId, uniq());
+
+        await expect(
+          market.forceCancel(listing.id, 'e2e 重复撤单'),
+        ).rejects.toThrow(/已结束/);
+      });
+    });
+
+    /** 后台挂单查询要能看到已结束的单 —— 处理纠纷时看的正是这些。 */
+    it('后台查询能看到已结束的挂单（玩家端 browse 看不到）', async () => {
+      await e2e.withConfig(OPEN_MARKET, async () => {
+        const seller = await trader();
+        const inst = await giveTradableInstance(seller.userId, 'acc_bow');
+        const listing = await market.list(
+          seller.userId,
+          { instanceId: inst.instanceId },
+          450,
+          'fixed',
+          uniq(),
+        );
+        await market.cancel(listing.id, seller.userId, uniq());
+
+        const browse = await market.browse({ page: 1, pageSize: 100 });
+        expect(browse.list.map((l) => l.id)).not.toContain(listing.id);
+
+        const admin = await market.adminListings({
+          page: 1,
+          pageSize: 100,
+          status: 'cancelled',
+          sellerUserId: seller.userId,
+        });
+        expect(admin.list.map((l) => l.id)).toContain(listing.id);
+      });
+    });
+  });
+
   describe('货币不能作为交易标的', () => {
     it('拒绝把 game_coin 挂到市场（不存在汇兑市场）', async () => {
       await e2e.withConfig(OPEN_MARKET, async () => {

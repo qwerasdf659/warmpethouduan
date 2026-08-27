@@ -17,8 +17,8 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "lint": "eslint src test scripts/dev scripts/*.js --fix",
-    "lint:check": "eslint src test scripts/dev scripts/*.js --max-warnings 0",
+    "lint": "eslint src test scripts/dev scripts/ops scripts/*.js --fix",
+    "lint:check": "eslint src test scripts/dev scripts/ops scripts/*.js --max-warnings 0",
     "verify": "npm run lint:check && tsc --noEmit && npm run check:circular && npm run verify:web && jest --silent && npm run test:e2e",
     "verify:web": "pnpm --dir admin-web lint && pnpm --dir admin-web typecheck && pnpm --dir admin-web test",
     "test": "jest",
@@ -38,6 +38,7 @@
     "prepare": "husky",
     "audit": "npm run script -- scripts/dev/audit-state.ts",
     "smoke:ledger": "npm run script -- scripts/dev/ledger-smoke.ts",
+    "archive:entries": "npm run script -- scripts/ops/archive-entries.ts",
     "admin:passwd": "npm run script -- scripts/dev/admin-passwd.ts"
   },
   "lint-staged": {

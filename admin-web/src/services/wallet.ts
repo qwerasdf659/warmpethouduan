@@ -1,5 +1,12 @@
 import { request } from '@umijs/max';
-import type { LedgerEntry, Paged, ReconcileReport, WalletView } from '@/types';
+import type {
+  AssetIssuanceSummary,
+  DailyAssetStat,
+  LedgerEntry,
+  Paged,
+  ReconcileReport,
+  WalletView,
+} from '@/types';
 import { newBizId } from '@/utils/bizId';
 
 export async function listLedger(params: {
@@ -18,6 +25,24 @@ export async function getPlayerWallet(
   id: string,
 ): Promise<{ wallet: WalletView }> {
   return request(`/admin/wallet/players/${id}`, { method: 'GET' });
+}
+
+/**
+ * 发行/销毁日报（通胀监控 + 刷币告警 + 待兑付负债）。
+ *
+ * 读的是每日对账物化出来的 `asset_daily_stat`，不实时扫分录 ——
+ * 发行与销毁是单边不守恒的两个口径，实时求和给不出财务要的那两个数。
+ */
+export async function listDailyStats(params: {
+  days?: number;
+  assetCode?: string;
+  reason?: string;
+}): Promise<{
+  list: DailyAssetStat[];
+  summary: AssetIssuanceSummary[];
+  days: number;
+}> {
+  return request('/admin/wallet/daily-stats', { method: 'GET', params });
 }
 
 /** 立即对账：逐条校验账本 11 项不变量，只读不写。 */

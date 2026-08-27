@@ -172,6 +172,65 @@ describe('后台 (e2e)', () => {
       // 被拦下就不该有任何账变
       expect((await e2e.walletOf(player.userId)).gameCoin).toBe(0);
     });
+
+    /**
+     * 市场权限与 `wallet:*` 分开是有意的：看行情、查纠纷挂单是日常客服工作，
+     * 而发币是资金操作。合成一个权限就意味着「能看挂单」的人也能凭空造币。
+     */
+    it('market:read 可查挂单与风控，但不能强制撤单', async () => {
+      const admin = await e2e.createAdmin({ permissions: ['market:read'] });
+      const { token } = (await login(admin.username, admin.password)).body as {
+        token: string;
+      };
+      const auth = { Authorization: `Bearer ${token}` };
+
+      await request(e2e.server)
+        .get('/admin/market/status')
+        .set(auth)
+        .expect(200);
+      await request(e2e.server)
+        .get('/admin/market/listings')
+        .set(auth)
+        .expect(200);
+      await request(e2e.server)
+        .get('/admin/market/risk/net-flow')
+        .set(auth)
+        .expect(200);
+
+      // 强制撤单会动到玩家已锁定的资产，要 market:write
+      await request(e2e.server)
+        .post('/admin/market/listings/1/force-cancel')
+        .set(auth)
+        .send({ bizId: `e2e-fc-${Date.now()}`, reason: 'e2e' })
+        .expect(403);
+    });
+
+    it('wallet:read 不能看市场（两套权限互不覆盖）', async () => {
+      const admin = await e2e.createAdmin({ permissions: ['wallet:read'] });
+      const { token } = (await login(admin.username, admin.password)).body as {
+        token: string;
+      };
+
+      await request(e2e.server)
+        .get('/admin/market/listings')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(403);
+    });
+
+    it('wallet:read 可读发行日报（与流水同域同权限）', async () => {
+      const admin = await e2e.createAdmin({ permissions: ['wallet:read'] });
+      const { token } = (await login(admin.username, admin.password)).body as {
+        token: string;
+      };
+
+      const res = await request(e2e.server)
+        .get('/admin/wallet/daily-stats?days=7')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      const body = res.body as { list: unknown[]; summary: unknown[] };
+      expect(Array.isArray(body.list)).toBe(true);
+      expect(Array.isArray(body.summary)).toBe(true);
+    });
   });
 
   describe('人工发币', () => {

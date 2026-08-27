@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { AccountService } from './account.service';
+import { LedgerQueryService } from './ledger-query.service';
 import { LedgerService } from './ledger.service';
 
 /**
@@ -24,6 +25,7 @@ describe('LedgerService', () => {
         resolveMany: jest.fn(),
         resolve: jest.fn(),
       } as unknown as AccountService,
+      { balances: jest.fn() } as unknown as LedgerQueryService,
     );
   });
 
@@ -234,6 +236,7 @@ describe('LedgerService', () => {
       const s = new LedgerService(
         ds as unknown as DataSource,
         {} as unknown as AccountService,
+        { balances: jest.fn() } as unknown as LedgerQueryService,
       );
       await expect(s.replay('u1:k')).rejects.toBeInstanceOf(ConflictException);
     });

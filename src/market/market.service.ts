@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { ClockService } from '../common/clock/clock.service';
 import { LockService } from '../common/lock/lock.service';
 import { rowsOf } from '../common/db/query-result';
@@ -22,58 +22,19 @@ import {
 } from '../ledger/asset-catalog.service';
 import { InventoryService } from '../ledger/inventory.service';
 import { LedgerService } from '../ledger/ledger.service';
-import { AccountRef, GAME_COIN, Leg, PostResult } from '../ledger/ledger.types';
+import { AccountRef, PostResult } from '../ledger/ledger.types';
 import { HoldingCleanupService } from './holding-cleanup.service';
+import { MarketQueryService } from './market-query.service';
 import { TradeRiskService } from './trade-risk.service';
+import { TradeSettlementService } from './trade-settlement.service';
+import type {
+  ListingRow,
+  ListingView,
+  ResolvedSubject,
+  Subject,
+} from './market.types';
 
-/** 交易标的：可堆叠资产按件数，唯一物品按实例。 */
-export type Subject =
-  { assetCode: string; qty: number } | { instanceId: string };
-
-/** 标的解析结果：把两种形态统一成后续流程能直接用的字段。 */
-interface ResolvedSubject {
-  def: AssetView;
-  assetCode: string;
-  /** 可堆叠标的的件数；唯一物品为 null */
-  qty: number | null;
-  instanceId: string | null;
-  /** 参考价（商店定价 × 件数），用于限价与额度累计 */
-  referenceValue: number;
-}
-
-export interface ListingView {
-  id: string;
-  sellerUserId: string | null;
-  mode: ListingMode;
-  assetCode: string;
-  assetName: string;
-  qty: number | null;
-  instanceId: string | null;
-  serial: number | null;
-  priceAsset: string;
-  price: number;
-  feeBps: number;
-  status: ListingStatus;
-  expiresAt: string;
-  createdAt: string;
-  /** 竞价模式下的当前最高价（无人出价则为 null） */
-  topBid: number | null;
-}
-
-interface ListingRow {
-  id: string;
-  seller_account_id: string;
-  mode: ListingMode;
-  asset_code: string;
-  qty: string | null;
-  instance_id: string | null;
-  price_asset: string;
-  price: string;
-  fee_bps: number;
-  status: ListingStatus;
-  expires_at: Date;
-  created_at: Date;
-}
+export type { Subject } from './market.types';
 
 /**
  * 交易市场。四档功能共用同一套账本原语，差别只在凭证的形状：
@@ -109,6 +70,8 @@ export class MarketService {
     private readonly config: GameConfigService,
     private readonly lock: LockService,
     private readonly clock: ClockService,
+    private readonly query: MarketQueryService,
+    private readonly settlement: TradeSettlementService,
   ) {}
 
   // ================================================================ 3a 系统回收
@@ -406,7 +369,7 @@ export class MarketService {
         if (this.ledger.isDuplicateBizId(e)) {
           // 幂等回放：找回上次那张挂单，而不是让客户端以为挂单失败
           const existing = await this.findListingByBizId(bizId);
-          if (existing) return this.toView(existing);
+          if (existing) return this.query.toView(existing);
           throw new ConflictException('请求处理中，请勿重复提交');
         }
         throw e;
@@ -414,7 +377,7 @@ export class MarketService {
 
       await this.cleanupAfterOutflow(userId, s.assetCode);
       const row = await this.loadListing(listingId);
-      return this.toView(row);
+      return this.query.toView(row);
     });
   }
 
@@ -434,7 +397,11 @@ export class MarketService {
         throw new BadRequestException('该挂单已结束');
       }
 
-      await this.unwind(row, 'cancelled', `cancel:${listingId}:${bizKey}`);
+      await this.settlement.unwind(
+        row,
+        'cancelled',
+        `cancel:${listingId}:${bizKey}`,
+      );
       return { ok: true };
     });
   }
@@ -478,7 +445,7 @@ export class MarketService {
       const bizId = `mkt:${listingId}:settle`;
       try {
         return await this.ds.transaction(async (m) =>
-          this.settleTrade(m, row, buyerUserId, price, bizId, false),
+          this.settlement.settleTrade(m, row, buyerUserId, price, bizId, false),
         );
       } catch (e) {
         if (this.ledger.isDuplicateBizId(e)) {
@@ -531,7 +498,7 @@ export class MarketService {
         throw new BadRequestException(`出价不得低于起拍价 ${row.price}`);
       }
 
-      const top = await this.topBid(listingId);
+      const top = await this.query.topBid(listingId);
       if (top && price <= Number(top.price)) {
         throw new BadRequestException(`出价必须高于当前最高价 ${top.price}`);
       }
@@ -571,7 +538,7 @@ export class MarketService {
           // 但把解冻放在后面会让「同一时刻两条 active」在库里短暂存在，
           // 而对账不变量 3（frozen == SUM(frozen_delta)）在事务内看不到差异、
           // 事务外看到的是最终态，所以顺序在这里纯粹是为了读起来符合直觉
-          if (top) await this.refundBid(m, top, row, 'outbid');
+          if (top) await this.settlement.refundBid(m, top, row, 'outbid');
 
           const inserted = rowsOf<{ id: string }>(
             await m.query(
@@ -605,10 +572,14 @@ export class MarketService {
       if (row.status !== 'listed') return { sold: false };
       if (row.mode !== 'auction') return { sold: false };
 
-      const top = await this.topBid(listingId);
+      const top = await this.query.topBid(listingId);
       if (!top) {
         // 流拍：退回标的，挂单落 expired
-        await this.unwind(row, 'expired', `auction-void:${listingId}`);
+        await this.settlement.unwind(
+          row,
+          'expired',
+          `auction-void:${listingId}`,
+        );
         return { sold: false };
       }
 
@@ -624,15 +595,26 @@ export class MarketService {
       const bizId = `mkt:${listingId}:settle`;
       try {
         await this.ds.transaction(async (m) => {
-          await this.settleTrade(m, row, winnerUserId, price, bizId, true);
+          await this.settlement.settleTrade(
+            m,
+            row,
+            winnerUserId,
+            price,
+            bizId,
+            true,
+          );
           await m.query(
             `UPDATE "market_bid" SET "status" = 'won' WHERE "id" = $1`,
             [top.id],
           );
           // 其余 active 出价全额解冻。逐条退而不是一张凭证退完：
           // 每个买家的解冻要能在他自己的流水里独立看到
-          for (const other of await this.activeBids(listingId, top.id, m)) {
-            await this.refundBid(m, other, row, 'cancelled');
+          for (const other of await this.settlement.activeBids(
+            listingId,
+            top.id,
+            m,
+          )) {
+            await this.settlement.refundBid(m, other, row, 'cancelled');
           }
         });
       } catch (e) {
@@ -645,75 +627,64 @@ export class MarketService {
 
   // ================================================================ 读
 
-  /** 市场浏览（在售挂单）。 */
-  async browse(opts: {
+  /** 市场浏览（在售挂单）。委托只读层，见 `MarketQueryService`。 */
+  browse(opts: {
     assetCode?: string;
     mode?: ListingMode;
     page: number;
     pageSize: number;
   }): Promise<{ list: ListingView[]; total: number }> {
-    const params: unknown[] = [];
-    const clauses = [`"status" = 'listed'`, `"expires_at" > now()`];
-    if (opts.assetCode) {
-      params.push(opts.assetCode);
-      clauses.push(`"asset_code" = $${params.length}`);
-    }
-    if (opts.mode) {
-      params.push(opts.mode);
-      clauses.push(`"mode" = $${params.length}`);
-    }
-    const where = `WHERE ${clauses.join(' AND ')}`;
-
-    const total = Number(
-      rowsOf<{ c: string }>(
-        await this.ds.query(
-          `SELECT COUNT(*) AS c FROM "market_listing" ${where}`,
-          params,
-        ),
-      )[0]?.c ?? 0,
-    );
-    params.push(opts.pageSize, (opts.page - 1) * opts.pageSize);
-    const rows = rowsOf<ListingRow>(
-      await this.ds.query(
-        `SELECT * FROM "market_listing" ${where}
-          ORDER BY "price" ASC, "id" ASC
-          LIMIT $${params.length - 1} OFFSET $${params.length}`,
-        params,
-      ),
-    );
-    return {
-      list: await Promise.all(rows.map((r) => this.toView(r))),
-      total,
-    };
+    return this.query.browse(opts);
   }
 
-  /** 我的挂单（含已结束的，供玩家查历史）。 */
-  async myListings(
+  /** 我的挂单（含已结束的，供玩家查历史）。委托只读层。 */
+  myListings(
     userId: string,
     opts: { page: number; pageSize: number },
   ): Promise<{ list: ListingView[]; total: number }> {
-    const accountId = await this.accounts.peek({ userId });
-    if (!accountId) return { list: [], total: 0 };
+    return this.query.myListings(userId, opts);
+  }
 
-    const total = Number(
-      rowsOf<{ c: string }>(
-        await this.ds.query(
-          `SELECT COUNT(*) AS c FROM "market_listing" WHERE "seller_account_id" = $1`,
-          [accountId],
-        ),
-      )[0]?.c ?? 0,
-    );
-    const rows = rowsOf<ListingRow>(
-      await this.ds.query(
-        `SELECT * FROM "market_listing" WHERE "seller_account_id" = $1
-          ORDER BY "id" DESC LIMIT $2 OFFSET $3`,
-        [accountId, opts.pageSize, (opts.page - 1) * opts.pageSize],
-      ),
-    );
-    return {
-      list: await Promise.all(rows.map((r) => this.toView(r))),
-      total,
-    };
+  /** 后台挂单查询（含已结束的）。委托只读层。 */
+  adminListings(opts: {
+    page: number;
+    pageSize: number;
+    status?: ListingStatus;
+    mode?: ListingMode;
+    assetCode?: string;
+    sellerUserId?: string;
+  }): Promise<{ list: ListingView[]; total: number }> {
+    return this.query.adminListings(opts);
+  }
+
+  /**
+   * 后台强制撤单（违规挂单下架 / 纠纷处理）。
+   *
+   * 与玩家撤单唯一的区别是**不校验归属**；退回标的、解冻全部活跃出价、落终态
+   * 都走同一个 `settlement.unwind`，因为「把一张单安全地拆掉」这件事只该有一种做法
+   * —— 复制一份实现出来，早晚会漏掉解冻出价那一步，把买家的钱永久冻死。
+   */
+  async forceCancel(
+    listingId: string,
+    reason: string,
+  ): Promise<{ ok: true; listingId: string }> {
+    return this.lock.withLock(`market:listing:${listingId}`, async () => {
+      const row = await this.loadListing(listingId);
+      if (row.status !== 'listed') {
+        throw new BadRequestException(
+          `该挂单已结束（当前状态：${row.status}），无需强制撤单`,
+        );
+      }
+      this.logger.warn(
+        `后台强制撤单 listing=${listingId} asset=${row.asset_code} 理由：${reason}`,
+      );
+      await this.settlement.unwind(
+        row,
+        'cancelled',
+        `admin-cancel:${listingId}`,
+      );
+      return { ok: true as const, listingId };
+    });
   }
 
   /** 到期未成交的挂单 id（定时作业用）。 */
@@ -741,268 +712,11 @@ export class MarketService {
     await this.lock.withLock(`market:listing:${listingId}`, async () => {
       const fresh = await this.loadListing(listingId);
       if (fresh.status !== 'listed') return;
-      await this.unwind(fresh, 'expired', `expire:${listingId}`);
+      await this.settlement.unwind(fresh, 'expired', `expire:${listingId}`);
     });
   }
 
   // ================================================================ 内部
-
-  /**
-   * 成交分账。`fromFrozen` 区分买家的钱是「可用余额」（一价）还是「冻结余额」（竞价）。
-   */
-  private async settleTrade(
-    m: EntityManager,
-    row: ListingRow,
-    buyerUserId: string,
-    price: number,
-    bizId: string,
-    fromFrozen: boolean,
-  ): Promise<PostResult> {
-    const fee = Math.floor((price * row.fee_bps) / 10_000);
-    const sellerGain = price - fee;
-    const sellerUserId = await this.accounts.userIdOf(row.seller_account_id);
-    if (!sellerUserId) {
-      throw new BadRequestException('卖家账户异常');
-    }
-
-    const legs: Leg[] = [
-      // 买家付款：竞价走冻结、一价走可用
-      fromFrozen
-        ? {
-            account: { userId: buyerUserId },
-            assetCode: row.price_asset,
-            frozenDelta: -price,
-          }
-        : {
-            account: { userId: buyerUserId },
-            assetCode: row.price_asset,
-            delta: -price,
-          },
-      {
-        account: { userId: sellerUserId },
-        assetCode: row.price_asset,
-        delta: sellerGain,
-      },
-    ];
-    // 费率为 0 时不写 FEE 腿：一条 delta 与 frozenDelta 都为 0 的分录会被
-    // `ck_entry_nonzero` 拒绝，而「没有手续费」是合法配置
-    if (fee > 0) {
-      legs.push({
-        account: { systemCode: 'FEE' },
-        assetCode: row.price_asset,
-        delta: fee,
-      });
-    }
-
-    // 可堆叠标的：卖家的冻结份额转给买家（两条腿求和为 0）
-    if (row.qty !== null) {
-      const qty = Number(row.qty);
-      legs.push(
-        {
-          account: { userId: sellerUserId },
-          assetCode: row.asset_code,
-          frozenDelta: -qty,
-        },
-        {
-          account: { userId: buyerUserId },
-          assetCode: row.asset_code,
-          delta: qty,
-        },
-      );
-    }
-
-    const posted = await this.ledger.postWithin(
-      m,
-      {
-        kind: 'transfer',
-        reason: 'market_settle',
-        bizKey: `${row.id}:settle`,
-        scope: 'mkt',
-        actorUserId: buyerUserId,
-        legs,
-        instanceMoves: row.instance_id
-          ? [
-              {
-                instanceId: row.instance_id,
-                from: { systemCode: 'ESCROW' },
-                to: { userId: buyerUserId },
-                toState: 'held',
-                // 新到手的物品重新起算冷却：防「盗号 → 转手 → 立刻再转手」
-                resetCooldown: true,
-              },
-            ]
-          : [],
-        refType: 'market_listing',
-        refId: row.id,
-      },
-      bizId,
-    );
-
-    const updated = rowsOf<{ id: string }>(
-      await m.query(
-        `UPDATE "market_listing"
-            SET "status" = 'sold', "settled_txn_id" = $2
-          WHERE "id" = $1 AND "status" = 'listed'
-        RETURNING "id"`,
-        [row.id, posted.txnId],
-      ),
-    );
-    if (updated.length === 0) {
-      // 状态已被别的路径改掉（撤单/过期），整笔回滚
-      throw new ConflictException('该挂单状态已变更，请刷新重试');
-    }
-
-    const buyerAccount = await this.accounts.resolve(
-      { userId: buyerUserId },
-      m,
-    );
-    await this.risk.record(m, buyerAccount, price, -price);
-    await this.risk.record(m, row.seller_account_id, 0, price);
-
-    return posted;
-  }
-
-  /**
-   * 退回挂单标的并落终态（撤单 / 过期 / 流拍共用）。
-   *
-   * 同时把所有 active 出价解冻 —— 漏掉这一步就是把买家的钱永久冻在账上，
-   * 而冻结余额不参与任何自动释放。
-   */
-  private async unwind(
-    row: ListingRow,
-    status: 'cancelled' | 'expired',
-    bizKey: string,
-  ): Promise<void> {
-    const sellerUserId = await this.accounts.userIdOf(row.seller_account_id);
-    if (!sellerUserId) throw new BadRequestException('卖家账户异常');
-    const bizId = `mkt:unwind:${row.id}:${status}`;
-
-    try {
-      await this.ds.transaction(async (m) => {
-        await this.ledger.postWithin(
-          m,
-          {
-            kind: 'freeze',
-            reason: 'market_unlist',
-            bizKey,
-            scope: 'mkt',
-            legs:
-              row.qty !== null
-                ? [
-                    {
-                      account: { userId: sellerUserId },
-                      assetCode: row.asset_code,
-                      delta: Number(row.qty),
-                      frozenDelta: -Number(row.qty),
-                    },
-                  ]
-                : [],
-            instanceMoves: row.instance_id
-              ? [
-                  {
-                    instanceId: row.instance_id,
-                    from: { systemCode: 'ESCROW' },
-                    to: { userId: sellerUserId },
-                    toState: 'held',
-                    // 撤单不重置冷却：拿回自己的东西不该重新罚 72 小时
-                    resetCooldown: false,
-                  },
-                ]
-              : [],
-            refType: 'market_listing',
-            refId: row.id,
-          },
-          bizId,
-        );
-
-        for (const bid of await this.activeBids(row.id, null, m)) {
-          await this.refundBid(m, bid, row, 'cancelled');
-        }
-
-        const updated = rowsOf<{ id: string }>(
-          await m.query(
-            `UPDATE "market_listing" SET "status" = $2
-              WHERE "id" = $1 AND "status" = 'listed' RETURNING "id"`,
-            [row.id, status],
-          ),
-        );
-        if (updated.length === 0) {
-          throw new ConflictException('该挂单状态已变更');
-        }
-      });
-    } catch (e) {
-      if (this.ledger.isDuplicateBizId(e)) return;
-      throw e;
-    }
-  }
-
-  /** 解冻一笔出价并落终态。 */
-  private async refundBid(
-    m: EntityManager,
-    bid: { id: string; bidder_account_id: string; price: string },
-    listing: { id: string; price_asset: string },
-    status: 'outbid' | 'cancelled',
-  ): Promise<void> {
-    const userId = await this.accounts.userIdOf(bid.bidder_account_id);
-    if (!userId) return;
-    const price = Number(bid.price);
-
-    await this.ledger.postWithin(m, {
-      kind: 'freeze',
-      reason: 'bid_refund',
-      bizKey: `bid-refund:${listing.id}:${bid.id}`,
-      scope: 'mkt',
-      legs: [
-        {
-          account: { userId },
-          assetCode: listing.price_asset,
-          delta: price,
-          frozenDelta: -price,
-        },
-      ],
-      refType: 'market_bid',
-      refId: bid.id,
-    });
-    await m.query(`UPDATE "market_bid" SET "status" = $2 WHERE "id" = $1`, [
-      bid.id,
-      status,
-    ]);
-  }
-
-  private async topBid(listingId: string): Promise<{
-    id: string;
-    bidder_account_id: string;
-    price: string;
-  } | null> {
-    const rows = rowsOf<{
-      id: string;
-      bidder_account_id: string;
-      price: string;
-    }>(
-      await this.ds.query(
-        `SELECT "id","bidder_account_id","price" FROM "market_bid"
-          WHERE "listing_id" = $1 AND "status" = 'active'
-          ORDER BY "price" DESC, "created_at" ASC LIMIT 1`,
-        [listingId],
-      ),
-    );
-    return rows[0] ?? null;
-  }
-
-  private async activeBids(
-    listingId: string,
-    excludeId: string | null,
-    m: EntityManager,
-  ): Promise<{ id: string; bidder_account_id: string; price: string }[]> {
-    return rowsOf(
-      await m.query(
-        `SELECT "id","bidder_account_id","price" FROM "market_bid"
-          WHERE "listing_id" = $1 AND "status" = 'active'
-            AND ($2::bigint IS NULL OR "id" <> $2::bigint)`,
-        [listingId, excludeId],
-      ),
-    );
-  }
 
   /**
    * 解析交易标的：校验归属、状态、冷却与可交易性。
@@ -1114,37 +828,5 @@ export class MarketService {
       ),
     );
     return rows[0] ?? null;
-  }
-
-  private async toView(row: ListingRow): Promise<ListingView> {
-    const def = await this.catalog.getByCode(row.asset_code);
-    const top = row.mode === 'auction' ? await this.topBid(row.id) : null;
-    let serial: number | null = null;
-    if (row.instance_id) {
-      serial =
-        rowsOf<{ serial: number | null }>(
-          await this.ds.query(
-            `SELECT "serial" FROM "item_instance" WHERE "id" = $1`,
-            [row.instance_id],
-          ),
-        )[0]?.serial ?? null;
-    }
-    return {
-      id: String(row.id),
-      sellerUserId: await this.accounts.userIdOf(row.seller_account_id),
-      mode: row.mode,
-      assetCode: row.asset_code,
-      assetName: def?.name ?? row.asset_code,
-      qty: row.qty === null ? null : Number(row.qty),
-      instanceId: row.instance_id ? String(row.instance_id) : null,
-      serial,
-      priceAsset: row.price_asset ?? GAME_COIN,
-      price: Number(row.price),
-      feeBps: row.fee_bps,
-      status: row.status,
-      expiresAt: new Date(row.expires_at).toISOString(),
-      createdAt: new Date(row.created_at).toISOString(),
-      topBid: top ? Number(top.price) : null,
-    };
   }
 }

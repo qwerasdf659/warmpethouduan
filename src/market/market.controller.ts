@@ -15,7 +15,8 @@ import { PlayerStatusGuard } from '../auth/player-status.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Idempotent } from '../common/idempotency/idempotent.decorator';
 import { IdempotencyInterceptor } from '../common/idempotency/idempotency.interceptor';
-import { MarketService, Subject } from './market.service';
+import { MarketService } from './market.service';
+import type { Subject } from './market.types';
 import {
   BidDto,
   BizIdDto,

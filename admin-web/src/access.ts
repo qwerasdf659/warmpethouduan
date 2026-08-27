@@ -32,6 +32,10 @@ export default function access(
     // 兑换码单独授权：印码等于凭空造积分，不该并进 wallet:write
     canReadPromo: has('promo:read'),
     canWritePromo: has('promo:write'),
+    // 市场与 wallet:* 分开：看行情、查纠纷挂单是日常客服工作，发币是资金操作。
+    // 强制撤单会动到玩家已锁定的资产，因此单列写权限
+    canReadMarket: has('market:read'),
+    canWriteMarket: has('market:write'),
     canReadStats: has('stats:read'),
     canReadConfig: has('config:read'),
     canWriteConfig: has('config:write'),

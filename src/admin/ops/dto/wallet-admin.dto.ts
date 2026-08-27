@@ -8,6 +8,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -29,6 +30,31 @@ export class QueryLedgerDto extends PaginationDto {
    * 没有它的话，全局流水会把 31 种资产的分录混在一列里，而「池」只有两个值 ——
    * 一条 `cons_snack +3` 会显示成「游戏币 +3」，客服据此判断就会出错。
    */
+  @IsOptional()
+  @IsString()
+  @MaxLength(48)
+  assetCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  reason?: string;
+}
+
+/**
+ * 发行/销毁日报查询。
+ *
+ * `days` 默认 30：通胀是趋势问题，看单日没有意义。上限 365 —— 再长就该导出
+ * 到 BI 而不是在后台表格里翻。
+ */
+export class QueryDailyStatsDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  days?: number;
+
   @IsOptional()
   @IsString()
   @MaxLength(48)
