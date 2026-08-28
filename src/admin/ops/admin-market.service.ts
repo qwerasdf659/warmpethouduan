@@ -3,6 +3,7 @@ import { GameConfigService } from '../../config/game-config.service';
 import { MarketService } from '../../market/market.service';
 import { TradeRiskService } from '../../trading/trade-risk.service';
 import type { NetFlowAlert } from '../../trading/trade-risk.service';
+import { QueryMarketBidsDto } from './dto/gameplay-query.dto';
 import {
   ForceCancelListingDto,
   QueryListingsDto,
@@ -72,6 +73,22 @@ export class AdminMarketService {
       mode: q.mode,
       assetCode: q.assetCode,
       sellerUserId: q.sellerUserId,
+    });
+  }
+
+  /**
+   * 竞价出价清单。
+   *
+   * 与挂单分开一个端点：一张拍卖单可能有几十次出价，塞进挂单列表会把它撑爆；
+   * 而运营查出价时通常是反过来的 —— 从玩家或从某一张单出发去追冻结的钱。
+   */
+  listBids(q: QueryMarketBidsDto) {
+    return this.market.adminBids({
+      page: q.page,
+      pageSize: q.pageSize,
+      listingId: q.listingId,
+      userId: q.userId,
+      status: q.status,
     });
   }
 

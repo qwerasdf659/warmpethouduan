@@ -28,6 +28,7 @@ export default defineConfig({
     theme: {
       token: {
         colorPrimary: '#D97706',
+        colorInfo: '#D97706',
         colorSuccess: '#16A34A',
         colorWarning: '#CA8A04',
         colorError: '#DC2626',
@@ -56,16 +57,24 @@ export default defineConfig({
     { path: '/economy/ledger', component: './Economy/Ledger' },
     { path: '/economy/exchange', component: './Economy/Exchange' },
     { path: '/economy/issuance', component: './Economy/Issuance' },
+    { path: '/economy/lots', component: './Economy/Lots' },
     { path: '/market', redirect: '/market/listings' },
     { path: '/market/listings', component: './Market/Listings' },
     { path: '/market/net-flow', component: './Market/NetFlow' },
+    { path: '/market/bids', component: './Market/Bids' },
+    { path: '/market/trade', component: './Market/Trade' },
     { path: '/marketing', redirect: '/marketing/promo' },
     { path: '/marketing/promo', component: './Marketing/Promo' },
     { path: '/marketing/events', component: './Marketing/Events' },
+    // 目录节点自身没有页面，统一重定向到第一个子页；漏掉的话直接敲
+    // /console/pet 会渲染空白（其余五个目录都有这一行，此前只有 pet 缺）
+    { path: '/pet', redirect: '/pet/eggs' },
     { path: '/pet/eggs', component: './Pet/Eggs' },
     { path: '/pet/pvp', component: './Pet/Pvp' },
     { path: '/pet/clinic', component: './Pet/Clinic' },
     { path: '/pet/minigame', component: './Pet/Minigame' },
+    { path: '/pet/race', component: './Pet/Race' },
+    { path: '/pet/gacha', component: './Pet/Gacha' },
     { path: '/config', redirect: '/config/items' },
     { path: '/config/items', component: './Config/Items' },
     { path: '/config/kv', component: './Config/Kv' },

@@ -194,25 +194,25 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       // 写死过一次就会在下次调价时把这条用例连坐成「余额不足」。
       const wanted = ['furn_tree', 'furn_sofa'];
       const catalog = (await request(server).get('/home').set(auth).expect(200))
-        .body as { items: { key: string; price: number }[] };
+        .body as { items: { assetCode: string; price: number }[] };
       const cost = wanted.reduce(
-        (sum, key) =>
-          sum + (catalog.items.find((i) => i.key === key)?.price ?? 0),
+        (sum, code) =>
+          sum + (catalog.items.find((i) => i.assetCode === code)?.price ?? 0),
         0,
       );
       expect(cost).toBeGreaterThan(0);
       await e2e.fundWallet(p.userId, { game: cost });
 
-      for (const itemKey of wanted) {
+      for (const assetCode of wanted) {
         await request(server)
           .post('/home/buy')
           .set(auth)
-          .send({ bizId: biz(`buy-${itemKey}`), itemKey })
+          .send({ bizId: biz(`buy-${assetCode}`), assetCode })
           .expect(201);
         await request(server)
           .post('/home/place')
           .set(auth)
-          .send({ itemKey })
+          .send({ assetCode })
           .expect(201);
       }
 
@@ -324,12 +324,12 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       await request(server)
         .post('/items/wardrobe/buy')
         .set(auth)
-        .send({ bizId: biz('buy'), itemKey: 'acc_crown' })
+        .send({ bizId: biz('buy'), assetCode: 'acc_crown' })
         .expect(201);
       await request(server)
         .post('/items/wardrobe/equip')
         .set(auth)
-        .send({ itemKey: 'acc_crown', petId })
+        .send({ assetCode: 'acc_crown', petId })
         .expect(201);
 
       const after = await request(server)
@@ -487,7 +487,7 @@ describe('玩法主链路 (e2e, 连真库)', () => {
         await request(server)
           .post('/items/wardrobe/buy')
           .set(auth)
-          .send({ bizId: biz(`buy-${key}`), itemKey: key })
+          .send({ bizId: biz(`buy-${key}`), assetCode: key })
           .expect(201);
       }
 
@@ -509,7 +509,7 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       await request(server)
         .post('/items/wardrobe/buy')
         .set(auth)
-        .send({ bizId: biz('buy-bg'), itemKey: 'bg_garden' })
+        .send({ bizId: biz('buy-bg'), assetCode: 'bg_garden' })
         .expect(201);
 
       const afterAcc = await request(server).get('/dex').set(auth).expect(200);
@@ -544,7 +544,7 @@ describe('玩法主链路 (e2e, 连真库)', () => {
         await request(server)
           .post('/home/buy')
           .set(auth)
-          .send({ bizId: biz(`buy-${key}`), itemKey: key })
+          .send({ bizId: biz(`buy-${key}`), assetCode: key })
           .expect(201);
       }
 
@@ -579,12 +579,12 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       await request(server)
         .post('/home/buy')
         .set(auth)
-        .send({ bizId: biz('buy-mat'), itemKey: 'furn_mat' })
+        .send({ bizId: biz('buy-mat'), assetCode: 'furn_mat' })
         .expect(201);
       await request(server)
         .post('/home/buy')
         .set(auth)
-        .send({ bizId: biz('buy-mat2'), itemKey: 'furn_mat' })
+        .send({ bizId: biz('buy-mat2'), assetCode: 'furn_mat' })
         .expect(201);
 
       type HomeRes = {
@@ -598,13 +598,13 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       await request(server)
         .post('/home/place')
         .set(auth)
-        .send({ itemKey: 'furn_mat', posX: 5, posY: 5 })
+        .send({ assetCode: 'furn_mat', posX: 5, posY: 5 })
         .expect(400);
 
       const placed = await request(server)
         .post('/home/place')
         .set(auth)
-        .send({ itemKey: 'furn_mat', posX: 0, posY: 0 })
+        .send({ assetCode: 'furn_mat', posX: 0, posY: 0 })
         .expect(201);
       expect((placed.body as HomeRes).placed).toHaveLength(1);
 
@@ -612,14 +612,14 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       await request(server)
         .post('/home/place')
         .set(auth)
-        .send({ itemKey: 'furn_mat', posX: 1, posY: 1 })
+        .send({ assetCode: 'furn_mat', posX: 1, posY: 1 })
         .expect(400);
 
       // 省略坐标：自动挪到不重叠的位置
       const auto = await request(server)
         .post('/home/place')
         .set(auth)
-        .send({ itemKey: 'furn_mat' })
+        .send({ assetCode: 'furn_mat' })
         .expect(201);
       const rects = (auto.body as HomeRes).placed;
       expect(rects).toHaveLength(2);
@@ -645,18 +645,18 @@ describe('玩法主链路 (e2e, 连真库)', () => {
         await request(server)
           .post('/items/wardrobe/buy')
           .set(auth)
-          .send({ bizId: biz(`buy-${key}`), itemKey: key })
+          .send({ bizId: biz(`buy-${key}`), assetCode: key })
           .expect(201);
       }
       await request(server)
         .post('/items/wardrobe/equip')
         .set(auth)
-        .send({ itemKey: 'bg_garden', petId })
+        .send({ assetCode: 'bg_garden', petId })
         .expect(201);
       const res = await request(server)
         .post('/items/wardrobe/equip')
         .set(auth)
-        .send({ itemKey: 'acc_cap', petId })
+        .send({ assetCode: 'acc_cap', petId })
         .expect(201);
 
       const equipped = (res.body as { equipped: Record<string, string> })
@@ -898,17 +898,18 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       const poor = await request(server)
         .post('/exchange/redeem')
         .set(auth)
-        .send({ bizId: biz('redeem-poor'), exchangeKey: 'coupon_5' });
+        .send({ bizId: biz('redeem-poor'), exchangeKey: 'coupon_off5' });
       expect(poor.status).toBe(400);
 
       await e2e.fundWallet(p.userId, { marketing: 500 });
       const rich = await request(server)
         .post('/exchange/redeem')
         .set(auth)
-        .send({ bizId: biz('redeem-ok'), exchangeKey: 'coupon_5' })
+        .send({ bizId: biz('redeem-ok'), exchangeKey: 'coupon_off5' })
         .expect(201);
+      // 券现在是自动发货的资产（进背包 + 90 天有效期），不再是等运营处理的 pending
       expect((rich.body as { order: { status: string } }).order.status).toBe(
-        'pending',
+        'shipped',
       );
       expect((await e2e.walletOf(p.userId)).marketingPoint).toBe(0);
     });
@@ -942,7 +943,7 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       expect(plush?.stockLeft).not.toBeNull();
       expect(plush?.myLeft).toBe(1);
       // 虚拟券默认不限量，两个余量都是 null
-      const coupon = items.find((i) => i.key === 'coupon_5');
+      const coupon = items.find((i) => i.key === 'coupon_off5');
       expect(coupon?.stockLeft).toBeNull();
       expect(coupon?.myLeft).toBeNull();
     });
@@ -1015,8 +1016,8 @@ describe('玩法主链路 (e2e, 连真库)', () => {
         .set(auth)
         .expect(200);
       const snack = (
-        owned.body as { items: { key: string; owned: number }[] }
-      ).items.find((i) => i.key === 'cons_snack');
+        owned.body as { items: { assetCode: string; owned: number }[] }
+      ).items.find((i) => i.assetCode === 'cons_snack');
       expect(snack?.owned).toBe(10);
     });
 
@@ -1068,16 +1069,16 @@ describe('玩法主链路 (e2e, 连真库)', () => {
         .expect(200);
       const snack = (
         shop.body as {
-          items: { key: string; price: number; owned: number }[];
+          items: { assetCode: string; price: number; owned: number }[];
         }
-      ).items.find((i) => i.key === 'cons_snack');
+      ).items.find((i) => i.assetCode === 'cons_snack');
       expect(snack).toBeDefined();
       expect(snack?.owned).toBe(0);
 
       const bought = await request(server)
         .post('/items/consumables/buy')
         .set(auth)
-        .send({ itemKey: 'cons_snack', qty: 3, bizId: biz('cons-buy') })
+        .send({ assetCode: 'cons_snack', qty: 3, bizId: biz('cons-buy') })
         .expect(201);
       expect((bought.body as { qty: number }).qty).toBe(3);
       expect((await e2e.walletOf(p.userId)).gameCoin).toBe(
@@ -1093,7 +1094,7 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       const used = await request(server)
         .post('/items/consumables/use')
         .set(auth)
-        .send({ itemKey: 'cons_snack', bizId: biz('cons-use') })
+        .send({ assetCode: 'cons_snack', bizId: biz('cons-use') })
         .expect(201);
       const body = used.body as {
         left: number;
@@ -1115,7 +1116,7 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       const res = await request(server)
         .post('/items/consumables/use')
         .set(auth)
-        .send({ itemKey: 'cons_snack', bizId: biz('cons-none') });
+        .send({ assetCode: 'cons_snack', bizId: biz('cons-none') });
       expect(res.status).toBe(400);
     });
 
@@ -1127,7 +1128,7 @@ describe('玩法主链路 (e2e, 连真库)', () => {
       await request(server)
         .post('/items/consumables/buy')
         .set(auth)
-        .send({ itemKey: 'skin_snow', bizId: biz('cons-wrong') })
+        .send({ assetCode: 'skin_snow', bizId: biz('cons-wrong') })
         .expect(404);
     });
   });
@@ -1291,8 +1292,8 @@ describe('玩法主链路 (e2e, 连真库)', () => {
         code += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
       }
       const rows = await e2e.db.query<{ id: string }[]>(
-        `INSERT INTO promo_code (code, batch, pool, amount, max_uses, enabled)
-         VALUES ($1, 'e2e', 'marketing', $2, $3, $4) RETURNING id`,
+        `INSERT INTO promo_code (code, batch, asset_code, amount, max_uses, enabled)
+         VALUES ($1, 'e2e', 'marketing_point', $2, $3, $4) RETURNING id`,
         [code, amount, opts.maxUses ?? 1, opts.enabled ?? true],
       );
       codeIds.push(rows[0].id);

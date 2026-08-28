@@ -14,6 +14,7 @@
  * 道具与消耗品，且扭蛋限定款一律 `tradable = false`。
  */
 import * as Joi from 'joi';
+import { GAME_COIN, MARKETING_POINT } from '../ledger/ledger.types';
 import {
   defineConfig,
   nonNegInt,
@@ -27,7 +28,7 @@ export interface GachaEntry {
   /** 相对权重（不是百分比）。概率 = weight / sum(weight) */
   weight: number;
   /** 产出的 `asset_def.code`。**不能是货币**（D1，见 `GachaPrize` 注释） */
-  itemKey: string;
+  assetCode: string;
   /** 件数 */
   qty: number;
   /** 稀有档：抽中时重置保底计数，前端可做特殊演出 */
@@ -37,7 +38,13 @@ export interface GachaEntry {
 export interface GachaPool {
   key: string;
   name: string;
-  pool: 'game' | 'marketing';
+  /**
+   * 扣费用的货币资产 code。
+   *
+   * 命名成 `costAsset` 而不是 `pool`：本接口自己就叫 `GachaPool`（奖池），
+   * 再有个 `pool` 字段指的却是「用哪种钱付」，两个 pool 是完全不同的东西。
+   */
+  costAsset: string;
   /** 单抽价格 */
   cost: number;
   /** 十连价格（给折扣，通常 < cost×10） */
@@ -57,7 +64,7 @@ export interface GachaPool {
    * 第二份是有价值的资产（可以挂到市场卖掉），再塞一份就是正当产出。
    * 真正的零价值情形只剩「重复的、且不可交易的」那部分 —— 也就是扭蛋限定款。
    */
-  dupeItemKey: string | null;
+  dupeAssetCode: string | null;
   /** 补偿道具的件数 */
   dupeQty: number;
   entries: GachaEntry[];
@@ -67,12 +74,12 @@ const DEFAULT_POOLS: GachaPool[] = [
   {
     key: 'daily',
     name: '日常扭蛋',
-    pool: 'game',
+    costAsset: GAME_COIN,
     cost: 300,
     // 十连 2700 = 九折，且保底必出稀有，让「攒着十连」成为更优策略
     costTen: 2700,
     pity: 30,
-    dupeItemKey: 'cons_snack',
+    dupeAssetCode: 'cons_snack',
     dupeQty: 2,
     /*
      * 权重合计 1000。
@@ -89,7 +96,7 @@ const DEFAULT_POOLS: GachaPool[] = [
         key: 'snack',
         name: '宠物零食 ×3',
         weight: 420,
-        itemKey: 'cons_snack',
+        assetCode: 'cons_snack',
         qty: 3,
         rare: false,
       },
@@ -97,7 +104,7 @@ const DEFAULT_POOLS: GachaPool[] = [
         key: 'bubble',
         name: '清洁泡泡 ×3',
         weight: 260,
-        itemKey: 'cons_bubble',
+        assetCode: 'cons_bubble',
         qty: 3,
         rare: false,
       },
@@ -105,7 +112,7 @@ const DEFAULT_POOLS: GachaPool[] = [
         key: 'energy',
         name: '能量饮 ×2',
         weight: 140,
-        itemKey: 'cons_energy',
+        assetCode: 'cons_energy',
         qty: 2,
         rare: false,
       },
@@ -113,7 +120,7 @@ const DEFAULT_POOLS: GachaPool[] = [
         key: 'cake',
         name: '生日蛋糕 ×1',
         weight: 150,
-        itemKey: 'cons_cake',
+        assetCode: 'cons_cake',
         qty: 1,
         rare: false,
       },
@@ -121,7 +128,7 @@ const DEFAULT_POOLS: GachaPool[] = [
         key: 'bg_beach',
         name: '海边夕照（背景）',
         weight: 20,
-        itemKey: 'bg_beach',
+        assetCode: 'bg_beach',
         qty: 1,
         rare: true,
       },
@@ -129,7 +136,7 @@ const DEFAULT_POOLS: GachaPool[] = [
         key: 'skin_shadow',
         name: '玄影（皮肤）',
         weight: 10,
-        itemKey: 'skin_shadow',
+        assetCode: 'skin_shadow',
         qty: 1,
         rare: true,
       },
@@ -140,7 +147,7 @@ const DEFAULT_POOLS: GachaPool[] = [
 /**
  * 档位 schema。
  *
- * 所有档位都是同一种形态（必有 `itemKey` 指向一个 `asset_def`），因此这里是一个
+ * 所有档位都是同一种形态（必有 `assetCode` 指向一个 `asset_def`），因此这里是一个
  * 普通 object 而不是 `Joi.alternatives()`。保持单一形态是有意的：
  * 多一个分支就多一处能配错、且只在抽到该档时才暴露的地方。
  */
@@ -150,7 +157,7 @@ const entrySchema = Joi.object({
   // 零权重的档位永远抽不到，是配置错误而非「临时关掉」的手段
   weight: posInt.max(1_000_000).required(),
   rare: Joi.boolean().required(),
-  itemKey: Joi.string().max(48).required(),
+  assetCode: Joi.string().max(48).required(),
   qty: posInt.max(999).required(),
 }).unknown(false);
 
@@ -167,11 +174,11 @@ export const GACHA_CONFIG = {
         Joi.object({
           key: Joi.string().max(48).required(),
           name: Joi.string().max(48).required(),
-          pool: Joi.string().valid('game', 'marketing').required(),
+          costAsset: Joi.string().valid(GAME_COIN, MARKETING_POINT).required(),
           cost: posInt.max(1_000_000).required(),
           costTen: posInt.max(10_000_000).required(),
           pity: nonNegInt.max(1000).required(),
-          dupeItemKey: Joi.string().max(48).allow(null).required(),
+          dupeAssetCode: Joi.string().max(48).allow(null).required(),
           dupeQty: nonNegInt.max(999).required(),
           // 至少一档，否则这个池抽出来什么都没有
           entries: Joi.array().items(entrySchema).min(1).required(),

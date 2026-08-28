@@ -17,6 +17,7 @@ import { RequirePermissions } from '../decorators/permissions.decorator';
 import { AdminJwtAuthGuard } from '../guards/admin-jwt-auth.guard';
 import { RolesGuard } from '../guards/roles.guard';
 import { AdminWalletService } from './admin-wallet.service';
+import { QueryAssetLotsDto } from './dto/gameplay-query.dto';
 import {
   GrantWalletBulkDto,
   GrantWalletDto,
@@ -52,6 +53,18 @@ export class AdminWalletController {
   @RequirePermissions('wallet:read')
   getWallet(@Param('id') id: string) {
     return this.service.getWallet(id);
+  }
+
+  /**
+   * 资产批次（FIFO 消耗与过期）。
+   *
+   * 余额只是批次的汇总；`filter=expiring` 用于在过期批处理跑之前先看一眼
+   * 「这批要过期多少」，那是玩家最容易来投诉的时间点。
+   */
+  @Get('lots')
+  @RequirePermissions('wallet:read')
+  assetLots(@Query() q: QueryAssetLotsDto) {
+    return this.service.assetLots(q);
   }
 
   /**

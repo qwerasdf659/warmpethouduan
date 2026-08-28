@@ -14,7 +14,7 @@ export class BuyConsumableDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(48)
-  itemKey: string;
+  assetCode: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -39,7 +39,7 @@ export class UseConsumableDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(48)
-  itemKey: string;
+  assetCode: string;
 
   @IsOptional()
   @IsString()

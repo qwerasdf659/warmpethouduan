@@ -19,12 +19,13 @@ import {
 } from '@/services/wallet';
 import type { LedgerEntry, ReconcileReport } from '@/types';
 
-const poolTag = (pool: string) =>
-  pool === 'game' ? (
-    <Tag color="gold">游戏币</Tag>
-  ) : (
-    <Tag color="purple">营销积分</Tag>
-  );
+/** 两种货币给个醒目的颜色；道具类资产直接显示 code。 */
+const assetTag = (assetCode: string) => {
+  if (assetCode === 'game_coin') return <Tag color="gold">游戏币</Tag>;
+  if (assetCode === 'marketing_point')
+    return <Tag color="purple">营销积分</Tag>;
+  return <Tag>{assetCode}</Tag>;
+};
 
 export default function LedgerPage() {
   const access = useAccess();
@@ -59,30 +60,14 @@ export default function LedgerPage() {
       fieldProps: { placeholder: '按玩家ID过滤' },
     },
     {
-      // 资产列必须有：账本重构后流水里有 31 种资产，而「积分池」只有两个值，
+      // 资产是流水的唯一维度：全站三十多种资产，而按「池」看只有两个值，
       // 一条 cons_snack +3 会显示成「游戏币 +3」，客服据此判断就会出错
       title: '资产',
       dataIndex: 'assetCode',
       width: 140,
       copyable: true,
       fieldProps: { placeholder: '如 game_coin / skin_tiger' },
-      render: (_, r) =>
-        r.assetCode === 'game_coin' || r.assetCode === 'marketing_point' ? (
-          poolTag(r.pool)
-        ) : (
-          <Tag>{r.assetCode}</Tag>
-        ),
-    },
-    {
-      title: '积分池',
-      dataIndex: 'pool',
-      width: 110,
-      valueType: 'select',
-      hideInTable: true,
-      valueEnum: {
-        game: { text: '游戏币' },
-        marketing: { text: '营销积分' },
-      },
+      render: (_, r) => assetTag(r.assetCode),
     },
     {
       title: '变动',
@@ -177,10 +162,13 @@ export default function LedgerPage() {
                 width={520}
                 trigger={<Button>批量发放</Button>}
                 modalProps={{ destroyOnClose: true }}
-                initialValues={{ pool: 'marketing', direction: 'grant' }}
+                initialValues={{
+                  assetCode: 'marketing_point',
+                  direction: 'grant',
+                }}
                 onFinish={async (v: {
                   userIds: string;
-                  pool: 'game' | 'marketing';
+                  assetCode: string;
                   direction: 'grant' | 'deduct';
                   amount: number;
                   reason?: string;
@@ -195,7 +183,7 @@ export default function LedgerPage() {
                   }
                   const res = await grantWalletBulk({
                     userIds,
-                    pool: v.pool,
+                    assetCode: v.assetCode,
                     direction: v.direction,
                     amount: Number(v.amount),
                     reason: v.reason,
@@ -230,11 +218,11 @@ export default function LedgerPage() {
                   fieldProps={{ rows: 6 }}
                 />
                 <ProFormRadio.Group
-                  name="pool"
-                  label="积分池"
+                  name="assetCode"
+                  label="货币"
                   options={[
-                    { label: '游戏币', value: 'game' },
-                    { label: '营销积分', value: 'marketing' },
+                    { label: '游戏币', value: 'game_coin' },
+                    { label: '营销积分', value: 'marketing_point' },
                   ]}
                   rules={[{ required: true }]}
                 />
@@ -267,16 +255,16 @@ export default function LedgerPage() {
                 width={460}
                 trigger={<Button type="primary">人工发币/扣币</Button>}
                 modalProps={{ destroyOnClose: true }}
-                initialValues={{ pool: 'game', direction: 'grant' }}
+                initialValues={{ assetCode: 'game_coin', direction: 'grant' }}
                 onFinish={async (v: {
                   userId: string;
-                  pool: 'game' | 'marketing';
+                  assetCode: string;
                   direction: 'grant' | 'deduct';
                   amount: number;
                   reason?: string;
                 }) => {
                   await grantWallet(v.userId, {
-                    pool: v.pool,
+                    assetCode: v.assetCode,
                     direction: v.direction,
                     amount: Number(v.amount),
                     reason: v.reason,
@@ -292,11 +280,11 @@ export default function LedgerPage() {
                   rules={[{ required: true }]}
                 />
                 <ProFormRadio.Group
-                  name="pool"
-                  label="积分池"
+                  name="assetCode"
+                  label="货币"
                   options={[
-                    { label: '游戏币', value: 'game' },
-                    { label: '营销积分', value: 'marketing' },
+                    { label: '游戏币', value: 'game_coin' },
+                    { label: '营销积分', value: 'marketing_point' },
                   ]}
                   rules={[{ required: true }]}
                 />
@@ -388,7 +376,6 @@ export default function LedgerPage() {
             page: params.current ?? 1,
             pageSize: params.pageSize ?? 20,
             userId: (params as any).userId || undefined,
-            pool: (params as any).pool || undefined,
             assetCode: (params as any).assetCode || undefined,
             reason: (params as any).reason || undefined,
           });

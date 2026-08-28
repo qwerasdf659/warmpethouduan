@@ -42,7 +42,7 @@ describe('EconomyService', () => {
       await expect(
         service.apply({
           userId: 'u1',
-          pool: 'game',
+          assetCode: GAME_COIN,
           delta,
           bizId: 'b1',
           reason: 'interact',
@@ -55,8 +55,8 @@ describe('EconomyService', () => {
       await expect(
         service.apply({
           userId: 'u1',
-          // 绕过类型检查模拟脏调用：池名来自配置，配错了不该静默记到某个默认资产上
-          pool: 'gold' as 'game',
+          // 绕过类型检查模拟脏调用：资产 code 来自配置，配错了不该静默记到某个默认资产上
+          assetCode: 'gold',
           delta: 10,
           bizId: 'b1',
           reason: 'interact',
@@ -91,7 +91,7 @@ describe('EconomyService', () => {
     it('game 池映射到 game_coin，正数 delta 落 issue 凭证', async () => {
       await service.apply({
         userId: 'u1',
-        pool: 'game',
+        assetCode: GAME_COIN,
         delta: 10,
         bizId: 'b1',
         reason: 'interact',
@@ -114,7 +114,7 @@ describe('EconomyService', () => {
     it('marketing 池映射到 marketing_point，负数 delta 落 burn 凭证', async () => {
       await service.apply({
         userId: 'u1',
-        pool: 'marketing',
+        assetCode: MARKETING_POINT,
         delta: -20,
         bizId: 'b2',
         reason: 'exchange',
@@ -137,7 +137,7 @@ describe('EconomyService', () => {
     it('出参回读整个钱包：本次只碰一池，另一池的值仍需查库', async () => {
       const res = await service.apply({
         userId: 'u1',
-        pool: 'game',
+        assetCode: GAME_COIN,
         delta: 10,
         bizId: 'b1',
         reason: 'interact',
@@ -146,7 +146,7 @@ describe('EconomyService', () => {
       expect(res.wallet.marketingPoint).toBe(7);
       expect(res.entry).toMatchObject({
         txnId: 'T1',
-        pool: 'game',
+        assetCode: GAME_COIN,
         delta: 10,
         balanceAfter: 110,
       });
@@ -163,7 +163,7 @@ describe('EconomyService', () => {
       });
       const res = await service.apply({
         userId: 'u1',
-        pool: 'game',
+        assetCode: GAME_COIN,
         delta: 10,
         bizId: 'b1',
         reason: 'interact',
@@ -183,7 +183,7 @@ describe('EconomyService', () => {
         },
         entry: {
           txnId: 'T',
-          pool: 'game',
+          assetCode: GAME_COIN,
           delta: 0,
           balanceAfter: 0,
           bizId: '',
@@ -193,7 +193,7 @@ describe('EconomyService', () => {
 
       await service.adminGrant({
         userId: 'u1',
-        pool: 'game',
+        assetCode: GAME_COIN,
         delta: 5,
         bizId: 'g1',
       });
@@ -203,7 +203,7 @@ describe('EconomyService', () => {
 
       await service.adminGrant({
         userId: 'u1',
-        pool: 'game',
+        assetCode: GAME_COIN,
         delta: -5,
         bizId: 'g2',
       });
@@ -227,7 +227,7 @@ describe('EconomyService', () => {
         },
         entry: {
           txnId: 'T',
-          pool: 'game',
+          assetCode: GAME_COIN,
           delta: 0,
           balanceAfter: 0,
           bizId: '',
@@ -237,7 +237,7 @@ describe('EconomyService', () => {
 
       await service.adminGrant({
         userId: 'u42',
-        pool: 'game',
+        assetCode: GAME_COIN,
         delta: 5,
         bizId: 'batch-2026',
       });

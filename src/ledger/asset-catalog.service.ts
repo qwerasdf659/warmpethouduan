@@ -10,7 +10,7 @@ import { GAME_COIN } from './ledger.types';
 
 /** 表现层分类。账本层不解释它，只有商店/家园/图鉴读。 */
 export type ItemType =
-  'skin' | 'accessory' | 'furniture' | 'consumable' | 'petpet';
+  'skin' | 'accessory' | 'furniture' | 'consumable' | 'petpet' | 'coupon';
 
 /**
  * 资产的业务视图：把 `meta` 里的 jsonb 摊平成带类型的字段。

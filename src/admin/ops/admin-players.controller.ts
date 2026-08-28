@@ -15,6 +15,7 @@ import { Audit } from '../decorators/audit.decorator';
 import { RequirePermissions } from '../decorators/permissions.decorator';
 import { AdminJwtAuthGuard } from '../guards/admin-jwt-auth.guard';
 import { RolesGuard } from '../guards/roles.guard';
+import { AdminPlayerDossierService } from './admin-player-dossier.service';
 import { AdminPlayersService } from './admin-players.service';
 import {
   AdjustPetDto,
@@ -32,7 +33,10 @@ import { QueryPlayersDto } from './dto/query-players.dto';
 @UseGuards(AdminJwtAuthGuard, RolesGuard)
 @UseInterceptors(AdminAuditInterceptor)
 export class AdminPlayersController {
-  constructor(private readonly service: AdminPlayersService) {}
+  constructor(
+    private readonly service: AdminPlayersService,
+    private readonly dossier: AdminPlayerDossierService,
+  ) {}
 
   @Get()
   @RequirePermissions('player:read')
@@ -44,6 +48,19 @@ export class AdminPlayersController {
   @RequirePermissions('player:read')
   detail(@Param('id') id: string) {
     return this.service.detail(id);
+  }
+
+  /**
+   * 玩法档案：签到 / 图鉴领取 / 收货地址 / 扭蛋保底 / 宠物病症·穿戴·技巧 /
+   * 唯一物品实例。与 `:id` 分开，让抽屉能按需懒加载而不拖慢第一屏。
+   *
+   * 路由必须放在 `:id` **之后**声明也无妨（路径段不同不会打架），但要放在
+   * 任何 `:id/:sub` 通配之前 —— 本控制器没有通配，故安全。
+   */
+  @Get(':id/dossier')
+  @RequirePermissions('player:read')
+  playerDossier(@Param('id') id: string) {
+    return this.dossier.dossier(id);
   }
 
   @Post(':id/ban')

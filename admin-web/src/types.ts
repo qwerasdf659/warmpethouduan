@@ -273,11 +273,10 @@ export interface LedgerEntry {
   userId: string;
   /**
    * 资产 code。流水里不止两种货币 —— 道具与消耗品的变动也有分录，
-   * 所以展示要按 code，不能只看 `pool`（`cons_snack +3` 会显示成「游戏币 +3」）。
+   * 所以这是唯一的资产维度：按「池」看只有两个值，
+   * 一条 `cons_snack +3` 会显示成「游戏币 +3」。
    */
   assetCode: string;
-  /** 仅对两种货币有意义；道具类一律落 `game` */
-  pool: 'game' | 'marketing';
   delta: number;
   balanceAfter: number;
   bizId: string;
@@ -327,6 +326,167 @@ export interface AdminThemeView {
   updatedAt: string | null;
 }
 
+// ---------------------------------------------------------------- 玩法巡检
+
+export interface GachaPrize {
+  entryKey: string;
+  name: string;
+  assetCode: string;
+  qty: number;
+  rare: boolean;
+  converted: boolean;
+}
+
+export interface GachaDrawView {
+  id: string;
+  userId: string;
+  poolKey: string;
+  times: number;
+  cost: number;
+  assetCode: string;
+  prizes: GachaPrize[];
+  rare: boolean;
+  delivered: boolean;
+  bizId: string;
+  createdAt: string;
+}
+
+export interface GachaStateView {
+  id: string;
+  userId: string;
+  poolKey: string;
+  /** 距离保底还差多少由池子配置决定，这里是已累计的未出货次数 */
+  pity: number;
+  totalDraws: number;
+  updatedAt: string;
+}
+
+export interface TradeOfferItemView {
+  id: string;
+  side: 'from' | 'to';
+  assetCode: string | null;
+  qty: string | null;
+  instanceId: string | null;
+}
+
+export interface TradeOfferView {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  status: 'pending' | 'accepted' | 'rejected' | 'cancelled' | 'expired';
+  fromCoin: string;
+  toCoin: string;
+  fromItems: TradeOfferItemView[];
+  toItems: TradeOfferItemView[];
+  expiresAt: string;
+  settledTxnId: string | null;
+  bizId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MarketBidView {
+  id: string;
+  listingId: string;
+  listingStatus: string | null;
+  assetCode: string | null;
+  bidderAccountId: string;
+  bidderUserId: string | null;
+  price: string;
+  status: 'active' | 'outbid' | 'won' | 'cancelled';
+  freezeTxnId: string;
+  createdAt: string;
+}
+
+export interface RaceRecordView {
+  id: string;
+  userId: string;
+  petId: string;
+  trackKey: string;
+  petLevel: number;
+  score: number;
+  finishTime: number | null;
+  grade: 'S' | 'A' | 'B' | 'C' | null;
+  ghostSource: 'player' | 'mixed' | 'npc' | null;
+  rank: number;
+  totalRacers: number;
+  rewardCoin: number;
+  staminaCost: number;
+  status: 'pending' | 'settled';
+  rewardDoubled: boolean;
+  reviveCount: number;
+  settledAt: string | null;
+  createdAt: string;
+}
+
+export interface AssetLotView {
+  id: string;
+  accountId: string;
+  userId: string | null;
+  assetCode: string;
+  remaining: string;
+  frozen: string;
+  issuedTotal: string;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+// ------------------------------------------------------- 玩家玩法档案（抽屉）
+
+export interface PetExtraView {
+  petId: string;
+  conditions: {
+    conditionKey: string;
+    since: string;
+    curedAt: string | null;
+    curedBy: string | null;
+  }[];
+  equips: { slot: string; assetCode: string; updatedAt: string }[];
+  tricks: {
+    trickKey: string;
+    proficiency: number;
+    learnedAt: string;
+    lastPracticeAt: string | null;
+  }[];
+}
+
+export interface PlayerInstanceView {
+  id: string;
+  assetCode: string;
+  state: 'held' | 'listed' | 'escrowed' | 'burned';
+  serial: number | null;
+  acquiredAt: string;
+  tradableAfter: string | null;
+}
+
+export interface DailyView {
+  lastCheckinDay: string | null;
+  streak: number;
+  totalCheckins: number;
+  taskDay: string | null;
+  claimedTasks: string[];
+  updatedAt: string;
+}
+
+export interface UserAddressView {
+  id: string;
+  receiver: string;
+  phone: string;
+  region: string;
+  detail: string;
+  isDefault: boolean;
+  updatedAt: string;
+}
+
+export interface PlayerDossier {
+  daily: DailyView | null;
+  dexClaims: { id: string; entryKey: string; createdAt: string }[];
+  addresses: UserAddressView[];
+  gachaStates: GachaStateView[];
+  petExtras: PetExtraView[];
+  instances: PlayerInstanceView[];
+}
+
 /**
  * 资产定义（`asset_def`）。
  *
@@ -337,11 +497,19 @@ export interface ItemDefView {
   code: string;
   /** 账本层的资产种类：unique 有身份可编号，stackable 只有数量 */
   kind: 'currency' | 'stackable' | 'unique';
-  type: 'skin' | 'accessory' | 'furniture' | 'consumable' | 'petpet' | null;
+  type:
+    | 'skin'
+    | 'accessory'
+    | 'furniture'
+    | 'consumable'
+    | 'petpet'
+    | 'coupon'
+    | null;
   name: string;
   slot: string | null;
   price: number;
-  pool: 'game' | 'marketing';
+  /** 计价货币资产 code（`game_coin` / `marketing_point`） */
+  priceAsset: string;
   comfort: number;
   /** 以下三个合规开关**只读**：改动需走数据库迁移，见后端 AdminItemsService */
   tradable: boolean;
@@ -353,6 +521,20 @@ export interface ItemDefView {
   meta: Record<string, unknown>;
   enabled: boolean;
   sortOrder: number;
+}
+
+/**
+ * 满减券核销结果。
+ *
+ * `threshold` / `deduct` 单位是**分**：门店按「满 threshold 减 deduct」执行。
+ * 返回里带 `userId` 是为了让收银台能与玩家出示的账号对上，防止代刷。
+ */
+export interface CouponVerifyResult {
+  ok: true;
+  userId: string;
+  assetCode: string;
+  threshold: number;
+  deduct: number;
 }
 
 /**
@@ -388,7 +570,8 @@ export interface RedeemOrderView {
   itemName: string;
   itemType: 'physical' | 'virtual';
   cost: number;
-  pool: 'game' | 'marketing';
+  /** 下单时的计价货币资产 code 快照 */
+  assetCode: string;
   status: 'pending' | 'shipped' | 'cancelled';
   bizId: string;
   address: {
@@ -413,7 +596,7 @@ export interface PromoCodeView {
   id: string;
   code: string;
   batch: string;
-  pool: 'game' | 'marketing';
+  assetCode: string;
   amount: number;
   maxUses: number;
   usedCount: number;
@@ -430,7 +613,7 @@ export interface PromoCodeView {
  */
 export interface PromoBatchSummary {
   batch: string;
-  pool: string;
+  assetCode: string;
   codes: number;
   totalUses: number;
   usedUses: number;
@@ -444,7 +627,7 @@ export interface PromoRedemptionView {
   userId: string;
   code: string;
   batch: string;
-  pool: 'game' | 'marketing';
+  assetCode: string;
   amount: number;
   createdAt: string;
 }

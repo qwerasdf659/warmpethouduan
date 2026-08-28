@@ -47,7 +47,7 @@ export class AdminPlayersService {
     };
   }
 
-  /** 玩家分页列表，keyword 模糊匹配 id/openid/unionid。 */
+  /** 玩家分页列表，keyword 模糊匹配 id/openid/unionid，可再按账号状态筛。 */
   async list(
     q: QueryPlayersDto,
   ): Promise<{ list: PlayerView[]; total: number }> {
@@ -58,10 +58,15 @@ export class AdminPlayersService {
       .take(q.pageSize);
 
     if (q.keyword) {
-      qb.where(
-        'CAST(u.id AS TEXT) ILIKE :kw OR u.openid ILIKE :kw OR u.unionid ILIKE :kw',
+      // 整段关键词条件用括号包住：与 status 用 AND 串联时，不加括号会变成
+      // 「id 匹配 OR openid 匹配 OR (unionid 匹配 AND status=banned)」
+      qb.andWhere(
+        '(CAST(u.id AS TEXT) ILIKE :kw OR u.openid ILIKE :kw OR u.unionid ILIKE :kw)',
         { kw: `%${q.keyword}%` },
       );
+    }
+    if (q.status) {
+      qb.andWhere('u.status = :status', { status: q.status });
     }
 
     const [rows, total] = await qb.getManyAndCount();
@@ -139,7 +144,7 @@ export class AdminPlayersService {
   async grantItem(
     id: string,
     dto: GrantItemDto,
-  ): Promise<{ itemKey: string; qty: number; granted: number }> {
+  ): Promise<{ assetCode: string; qty: number; granted: number }> {
     const u = await this.users.findOne({
       where: { id },
       select: { id: true },
@@ -147,7 +152,7 @@ export class AdminPlayersService {
     if (!u) throw new NotFoundException('玩家不存在');
     return this.items.grant(
       id,
-      dto.itemKey,
+      dto.assetCode,
       dto.qty ?? 1,
       `admin:grant:${dto.bizId}:${id}`,
       'compensation',

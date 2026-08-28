@@ -16,6 +16,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { DataSource } from 'typeorm';
+import { GAME_COIN, MARKETING_POINT } from '../../src/ledger/ledger.types';
 import { AppModule } from '../../src/app.module';
 import { ClockService } from '../../src/common/clock/clock.service';
 import { GameConfigService } from '../../src/config/game-config.service';
@@ -143,7 +144,7 @@ async function main(): Promise<void> {
       if (amount <= 0) continue;
       const res = await economy.apply({
         userId: user.id,
-        pool,
+        assetCode: pool === 'game' ? GAME_COIN : MARKETING_POINT,
         delta: amount,
         // 稳定 bizId：含 tag 与金额，改了额度会重新发一笔，没改则回放不重复发
         bizId: `seed:${p.tag}:${pool}:${amount}`,

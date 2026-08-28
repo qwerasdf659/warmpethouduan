@@ -2,9 +2,12 @@ import {
   Column,
   Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { User } from './user.entity';
 
 /**
  * 宠物已学技巧（P13）。熟练度 0~100，练习提升、表演产出。
@@ -21,6 +24,14 @@ export class PetTrick {
 
   @Column({ name: 'user_id', type: 'bigint' })
   userId: string;
+
+  /**
+   * 关系只为声明外键而存在（不做 eager/join 查询）。
+   * 少了它，`migration:generate` 会认为库里那条外键是多余的并生成 DROP。
+   */
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'user_id' })
+  user?: User;
 
   @Column({ name: 'trick_key', type: 'varchar', length: 32 })
   trickKey: string;

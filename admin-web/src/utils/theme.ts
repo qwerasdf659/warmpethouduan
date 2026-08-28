@@ -70,6 +70,10 @@ export function toAntdConfig(t: AdminThemeSetting): ConfigProviderProps {
         : antdTheme.defaultAlgorithm,
       token: {
         colorPrimary: t.colorPrimary,
+        // antd 的 colorInfo 是独立种子（默认与 colorPrimary 同为蓝），只改主色的话
+        // Progress 的进度条、processing 标签、info 提示会固执地留在蓝色，跟换过色的
+        // 界面撞在一起。跟随主色，与 antd 自身「两者默认相等」的约定一致。
+        colorInfo: t.colorPrimary,
         colorSuccess: t.colorSuccess,
         colorWarning: t.colorWarning,
         colorError: t.colorError,

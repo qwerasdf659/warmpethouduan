@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { GAME_COIN } from '../ledger/ledger.types';
 import { Repository } from 'typeorm';
 import { LockService } from '../common/lock/lock.service';
 import { GameConfigService } from '../config/game-config.service';
@@ -26,19 +27,19 @@ interface RepoStub {
 const item = (
   key: string,
   weight: number,
-  itemKey: string,
+  assetCode: string,
   rare = false,
   qty = 1,
-): GachaEntry => ({ key, name: key, weight, itemKey, qty, rare });
+): GachaEntry => ({ key, name: key, weight, assetCode, qty, rare });
 
 const POOL: GachaPool = {
   key: 'daily',
   name: '日常扭蛋',
-  pool: 'game',
+  costAsset: GAME_COIN,
   cost: 300,
   costTen: 2700,
   pity: 3,
-  dupeItemKey: 'cons_snack',
+  dupeAssetCode: 'cons_snack',
   dupeQty: 2,
   entries: [
     item('snack', 900, 'cons_snack', false, 3),
@@ -219,12 +220,12 @@ describe('GachaService', () => {
       bizId: 'b1',
       times: 1,
       cost: 300,
-      pool: 'game' as const,
+      assetCode: GAME_COIN,
       prizes: [
         {
           entryKey: 'skin',
           name: 'skin',
-          itemKey: 'skin_shadow',
+          assetCode: 'skin_shadow',
           qty: 1,
           rare: true,
           converted: false,
@@ -363,7 +364,7 @@ describe('GachaService', () => {
       const res = await svc.draw('u1', 'daily', 1, 'b1');
 
       expect(res.prizes[0].converted).toBe(true);
-      expect(res.prizes[0].itemKey).toBe('cons_snack');
+      expect(res.prizes[0].assetCode).toBe('cons_snack');
       expect(res.prizes[0].qty).toBe(2);
     });
 
@@ -379,7 +380,7 @@ describe('GachaService', () => {
       const res = await svc.draw('u1', 'daily', 1, 'b1');
 
       expect(res.prizes[0].converted).toBe(false);
-      expect(res.prizes[0].itemKey).toBe('skin_aurora');
+      expect(res.prizes[0].assetCode).toBe('skin_aurora');
     });
 
     it('可堆叠资产不折算（本来就是可叠加的）', async () => {
@@ -389,7 +390,7 @@ describe('GachaService', () => {
       const res = await svc.draw('u1', 'daily', 1, 'b1');
 
       expect(res.prizes[0].converted).toBe(false);
-      expect(res.prizes[0].itemKey).toBe('cons_snack');
+      expect(res.prizes[0].assetCode).toBe('cons_snack');
     });
 
     it('配置指向不存在的资产时折成补偿道具，而不是让玩家白花钱', async () => {
@@ -398,7 +399,7 @@ describe('GachaService', () => {
       const res = await svc.draw('u1', 'daily', 1, 'b1');
 
       expect(res.prizes[0].converted).toBe(true);
-      expect(res.prizes[0].itemKey).toBe('cons_snack');
+      expect(res.prizes[0].assetCode).toBe('cons_snack');
     });
   });
 

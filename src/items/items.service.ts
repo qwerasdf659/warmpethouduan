@@ -14,7 +14,7 @@ import { RewardService } from '../ledger/reward.service';
 import type { LedgerReason } from '../ledger/ledger.types';
 
 export interface BuyResult {
-  itemKey: string;
+  assetCode: string;
   qty: number;
   wallet: WalletView;
   duplicated: boolean;
@@ -45,7 +45,7 @@ export class ItemsService {
     return this.catalog.listByItemType(types);
   }
 
-  async getDefByKey(key: string): Promise<AssetView | null> {
+  async getDefByCode(key: string): Promise<AssetView | null> {
     return this.catalog.getByCode(key);
   }
 
@@ -74,12 +74,12 @@ export class ItemsService {
    */
   async grant(
     userId: string,
-    itemKey: string,
+    assetCode: string,
     qty = 1,
     bizKey?: string,
     reason: LedgerReason = 'compensation',
-  ): Promise<{ itemKey: string; qty: number; granted: number }> {
-    const def = await this.catalog.getByCode(itemKey);
+  ): Promise<{ assetCode: string; qty: number; granted: number }> {
+    const def = await this.catalog.getByCode(assetCode);
     if (!def) throw new NotFoundException('物品不存在');
     const n = Math.max(1, Math.trunc(qty));
 
@@ -92,7 +92,7 @@ export class ItemsService {
     });
 
     return {
-      itemKey: def.code,
+      assetCode: def.code,
       qty: await this.inventory.ownedQty(userId, def.code),
       granted: n,
     };
@@ -106,11 +106,11 @@ export class ItemsService {
    */
   async buy(
     userId: string,
-    itemKey: string,
+    assetCode: string,
     bizId: string,
     count = 1,
   ): Promise<BuyResult> {
-    const def = await this.catalog.getByCode(itemKey);
+    const def = await this.catalog.getByCode(assetCode);
     if (!def || !def.enabled) throw new NotFoundException('物品不存在或已下架');
     if (def.price <= 0) throw new BadRequestException('该物品无需购买');
     const n = Math.max(1, Math.trunc(count));
@@ -128,7 +128,7 @@ export class ItemsService {
     );
 
     return {
-      itemKey: def.code,
+      assetCode: def.code,
       qty: await this.inventory.ownedQty(userId, def.code),
       wallet: await this.economy.getWallet(userId),
       duplicated: result.duplicated,
@@ -146,11 +146,11 @@ export class ItemsService {
    */
   async consumeOwned(
     userId: string,
-    itemKey: string,
+    assetCode: string,
     bizKey: string,
     n = 1,
   ): Promise<number> {
-    const def = await this.catalog.getByCode(itemKey);
+    const def = await this.catalog.getByCode(assetCode);
     if (!def) throw new NotFoundException('物品不存在');
     if (def.kind === 'unique') {
       throw new BadRequestException('唯一物品不能按数量消耗');

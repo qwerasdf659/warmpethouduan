@@ -19,7 +19,7 @@ const MAX_COLLISION_RETRY = 5;
 
 export interface PromoBatchSummary {
   batch: string;
-  pool: string;
+  assetCode: string;
   codes: number;
   totalUses: number;
   usedUses: number;
@@ -67,7 +67,7 @@ export class AdminPromoService {
     for (let i = 0; i < dto.count; i += 1) {
       const code = await this.insertUnique({
         batch: dto.batch,
-        pool: dto.pool,
+        assetCode: dto.assetCode,
         amount: dto.amount,
         maxUses,
         expiresAt,
@@ -86,7 +86,7 @@ export class AdminPromoService {
 
   private async insertUnique(base: {
     batch: string;
-    pool: 'game' | 'marketing';
+    assetCode: string;
     amount: number;
     maxUses: number;
     expiresAt: Date | null;
@@ -95,14 +95,14 @@ export class AdminPromoService {
     for (let attempt = 0; attempt < MAX_COLLISION_RETRY; attempt += 1) {
       const code = generateCode(CODE_LENGTH, (max) => randomInt(max));
       const res = await this.codes.query<unknown[]>(
-        `INSERT INTO promo_code (code, batch, pool, amount, max_uses, used_count, expires_at, enabled, remark)
+        `INSERT INTO promo_code (code, batch, asset_code, amount, max_uses, used_count, expires_at, enabled, remark)
          VALUES ($1, $2, $3, $4, $5, 0, $6, true, $7)
          ON CONFLICT (code) DO NOTHING
          RETURNING code`,
         [
           code,
           base.batch,
-          base.pool,
+          base.assetCode,
           base.amount,
           base.maxUses,
           base.expiresAt,
@@ -145,7 +145,7 @@ export class AdminPromoService {
     const rows = await this.codes
       .createQueryBuilder('c')
       .select('c.batch', 'batch')
-      .addSelect('MIN(c.pool)', 'pool')
+      .addSelect('MIN(c.asset_code)', 'assetCode')
       .addSelect('COUNT(*)', 'codes')
       .addSelect('SUM(c.max_uses)', 'total_uses')
       .addSelect('SUM(c.used_count)', 'used_uses')
@@ -155,7 +155,7 @@ export class AdminPromoService {
       .orderBy('MIN(c.created_at)', 'DESC')
       .getRawMany<{
         batch: string;
-        pool: string;
+        assetCode: string;
         codes: string;
         total_uses: string;
         used_uses: string;
@@ -175,7 +175,7 @@ export class AdminPromoService {
     return {
       list: rows.map((r) => ({
         batch: r.batch,
-        pool: r.pool,
+        assetCode: r.assetCode,
         codes: Number(r.codes),
         totalUses: Number(r.total_uses),
         usedUses: Number(r.used_uses),
@@ -223,7 +223,7 @@ export class AdminPromoService {
         'r.id AS id',
         'r.user_id AS "userId"',
         'r.code AS code',
-        'r.pool AS pool',
+        'r.asset_code AS "assetCode"',
         'r.amount AS amount',
         'r.created_at AS "createdAt"',
         'c.batch AS batch',

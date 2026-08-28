@@ -13,22 +13,19 @@ import {
   Min,
 } from 'class-validator';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
+import { GAME_COIN, MARKETING_POINT } from '../../../ledger/ledger.types';
 
-/** 后台全局流水查询。可按玩家 / 池 / 资产 / 原因筛选。 */
+/** 后台全局流水查询。可按玩家 / 资产 / 原因筛选。 */
 export class QueryLedgerDto extends PaginationDto {
   @IsOptional()
   @IsString()
   userId?: string;
 
-  @IsOptional()
-  @IsIn(['game', 'marketing'])
-  pool?: 'game' | 'marketing';
-
   /**
-   * 按具体资产筛选（`asset_def.code`）。与 `pool` 同时给时本项胜出。
+   * 按资产筛选（`asset_def.code`）。留空 = 全部资产。
    *
-   * 没有它的话，全局流水会把 31 种资产的分录混在一列里，而「池」只有两个值 ——
-   * 一条 `cons_snack +3` 会显示成「游戏币 +3」，客服据此判断就会出错。
+   * 资产维度只有这一个：全站有三十多种资产，而「池」只有两个值——
+   * 一条 `cons_snack +3` 在池维度下会显示成「游戏币 +3」，客服据此判断就会出错。
    */
   @IsOptional()
   @IsString()
@@ -96,8 +93,9 @@ export class GrantWalletDto {
   @MaxLength(64)
   bizId: string;
 
-  @IsIn(['game', 'marketing'])
-  pool: 'game' | 'marketing';
+  /** 货币资产 code（`game_coin` / `marketing_point`）。 */
+  @IsIn([GAME_COIN, MARKETING_POINT])
+  assetCode: string;
 
   @IsIn(['grant', 'deduct'])
   direction: 'grant' | 'deduct';
@@ -132,8 +130,9 @@ export class GrantWalletBulkDto {
   @IsString({ each: true })
   userIds: string[];
 
-  @IsIn(['game', 'marketing'])
-  pool: 'game' | 'marketing';
+  /** 货币资产 code（`game_coin` / `marketing_point`）。 */
+  @IsIn([GAME_COIN, MARKETING_POINT])
+  assetCode: string;
 
   @IsIn(['grant', 'deduct'])
   direction: 'grant' | 'deduct';

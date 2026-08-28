@@ -3,8 +3,11 @@ import {
   CreateDateColumn,
   Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import { User } from './user.entity';
 
 /**
  * 宠物病症（P1）。
@@ -29,12 +32,32 @@ export class PetCondition {
   @Column({ name: 'user_id', type: 'bigint' })
   userId: string;
 
+  /**
+   * 关系只为声明外键而存在（不做 eager/join 查询）。
+   * 少了它，`migration:generate` 会认为库里那条外键是多余的并生成 DROP。
+   */
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'user_id' })
+  user?: User;
+
   @Column({ name: 'condition_key', type: 'varchar', length: 32 })
   conditionKey: string;
 
   /** 服务端判定的起病时刻。 */
   @Column({ type: 'timestamptz' })
   since: Date;
+
+  /**
+   * 自愈计时锚点：巡检首次观察到该病症对应属性回到 `pet.cure.selfHealStat`
+   * 以上的时刻。属性掉回阈值以下则清空，重新计时。
+   *
+   * 必须落列而不是从属性推算：属性只能推出「此刻是否达标」，
+   * 推不出「已经达标多久」。而后者正是自愈的判定条件。
+   * 用 `pet.last_seen_at` 代替也不行——玩家每次互动都会刷新它，
+   * 于是越是精心照顾的宠物越永远等不到自愈。
+   */
+  @Column({ name: 'healthy_since', type: 'timestamptz', nullable: true })
+  healthySince: Date | null;
 
   @Column({ name: 'cured_at', type: 'timestamptz', nullable: true })
   curedAt: Date | null;

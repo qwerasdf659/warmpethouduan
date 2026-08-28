@@ -1,5 +1,5 @@
 /**
- * 兑换中心目录。实物用营销积分（marketing）兑换、可发货；虚拟奖励即时到账。
+ * 兑换中心目录。实物用营销积分兑换、可发货；虚拟奖励即时到账。
  */
 import * as Joi from 'joi';
 import {
@@ -8,6 +8,7 @@ import {
   strictObject,
   type ShapeOf,
 } from '../config/game-config.types';
+import { GAME_COIN, MARKETING_POINT } from '../ledger/ledger.types';
 
 export interface ExchangeItem {
   key: string;
@@ -15,8 +16,8 @@ export interface ExchangeItem {
   type: 'physical' | 'virtual';
   /** 兑换花费 */
   cost: number;
-  /** 计费积分池：实物一般用 marketing */
-  pool: 'game' | 'marketing';
+  /** 计价货币资产 code：实物一般用 `marketing_point` */
+  costAsset: string;
   desc: string;
   sortOrder: number;
   /**
@@ -43,31 +44,32 @@ export interface ExchangeItem {
 /**
  * 默认兑换目录。
  *
- * 刻意混编两个池：营销积分兑实物/权益（合规框架见规格 §6.1），
+ * 刻意混编两种货币：营销积分兑实物/权益（合规框架见规格 §6.1），
  * **游戏币兑虚拟礼包**则让兑换中心对「从没参加过线下活动」的玩家也有内容 ——
- * 此前整份目录全是 marketing 池，而营销积分只有站外来源，等于玩家永远兑不动。
+ * 整份目录只收营销积分的话，而营销积分只有站外来源，等于玩家永远兑不动。
  */
 const DEFAULT_ITEMS: ExchangeItem[] = [
   {
-    key: 'coupon_5',
-    name: '5 元代金券',
+    key: 'coupon_off5',
+    name: '满 50 减 5 券',
     type: 'virtual',
     cost: 500,
-    pool: 'marketing',
-    desc: '到账后可在合作门店核销',
+    costAsset: MARKETING_POINT,
+    desc: '立刻到账，90 天内有效；到店出示核销码，单笔满 50 元减 5 元',
     sortOrder: 1,
     stock: null,
     perUserLimit: null,
-    // 门店核销要运营确认，不自动发货
-    grantItemKey: null,
-    grantQty: 0,
+    // 券即时进背包，不再是「等运营手工发货」的 pending 单：
+    // 有效期由 asset_lot 批次过期管，核销走 POST /exchange/coupon/redeem
+    grantItemKey: 'coupon_off5',
+    grantQty: 1,
   },
   {
     key: 'plush_toy',
     name: '宠物同款玩偶',
     type: 'physical',
     cost: 2000,
-    pool: 'marketing',
+    costAsset: MARKETING_POINT,
     desc: '实物包邮，7 个工作日内发货',
     sortOrder: 2,
     // 实物默认给保守库存与每人 1 件：备货是真金白银，宁可运营主动放开
@@ -81,7 +83,7 @@ const DEFAULT_ITEMS: ExchangeItem[] = [
     name: '定制马克杯',
     type: 'physical',
     cost: 1200,
-    pool: 'marketing',
+    costAsset: MARKETING_POINT,
     desc: '实物包邮',
     sortOrder: 3,
     stock: 200,
@@ -95,7 +97,7 @@ const DEFAULT_ITEMS: ExchangeItem[] = [
     name: '零食礼包 ×10',
     type: 'virtual',
     cost: 700,
-    pool: 'game',
+    costAsset: GAME_COIN,
     desc: '立刻到账 10 份宠物零食',
     sortOrder: 10,
     stock: null,
@@ -108,7 +110,7 @@ const DEFAULT_ITEMS: ExchangeItem[] = [
     name: '护理礼包 ×5',
     type: 'virtual',
     cost: 900,
-    pool: 'game',
+    costAsset: GAME_COIN,
     desc: '立刻到账 5 份清洁泡泡与 5 份玩具球',
     sortOrder: 11,
     stock: null,
@@ -121,7 +123,7 @@ const DEFAULT_ITEMS: ExchangeItem[] = [
     name: '能量礼包 ×5',
     type: 'virtual',
     cost: 1500,
-    pool: 'game',
+    costAsset: GAME_COIN,
     desc: '立刻到账 5 份能量饮，赛跑前补体力',
     sortOrder: 12,
     stock: null,
@@ -143,7 +145,7 @@ export const EXCHANGE_CONFIG = {
           type: Joi.string().valid('physical', 'virtual').required(),
           // 允许 0 成本（做活动白送），但不允许负数
           cost: nonNegInt.required(),
-          pool: Joi.string().valid('game', 'marketing').required(),
+          costAsset: Joi.string().valid(GAME_COIN, MARKETING_POINT).required(),
           desc: Joi.string().max(128).allow('').required(),
           sortOrder: nonNegInt.required(),
           // 必填但可为 null：强迫运营对每个兑换项显式表态「限量还是不限量」

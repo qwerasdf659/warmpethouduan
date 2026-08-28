@@ -9,6 +9,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import Redis from 'ioredis';
 import { Repository } from 'typeorm';
+import { GAME_COIN } from '../ledger/ledger.types';
 import { PlayerStatusService } from '../auth/player-status.service';
 import { ClockService } from '../common/clock/clock.service';
 import { LockService } from '../common/lock/lock.service';
@@ -418,7 +419,7 @@ export class PetService {
       if (grantedCoin > 0) {
         const res = await this.economy.apply({
           userId,
-          pool: 'game',
+          assetCode: GAME_COIN,
           delta: grantedCoin,
           bizId: `${bizId}:coin`,
           reason: 'interact',
@@ -742,7 +743,7 @@ export class PetService {
 
       const applied = await this.economy.apply({
         userId,
-        pool: 'game',
+        assetCode: GAME_COIN,
         delta: claimableCoin,
         bizId,
         reason: 'offline',

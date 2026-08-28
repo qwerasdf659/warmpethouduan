@@ -20,7 +20,7 @@ export interface ConsumableEffect {
   exp?: number;
 }
 
-/** itemKey -> 效果 */
+/** assetCode -> 效果 */
 export type ConsumableTable = Record<string, ConsumableEffect>;
 
 const DEFAULT_CONSUMABLES: ConsumableTable = {
@@ -75,7 +75,7 @@ export const ITEMS_CONFIG = {
 
   'items.consumables': defineConfig<ConsumableTable>({
     description:
-      '消耗品使用效果（itemKey → 增益）。键必须与 asset_def 中 meta.itemType=consumable 的资产 code 一致',
+      '消耗品使用效果（assetCode → 增益）。键必须与 asset_def 中 meta.itemType=consumable 的资产 code 一致',
     default: DEFAULT_CONSUMABLES,
     schema: Joi.object()
       .pattern(

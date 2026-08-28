@@ -332,93 +332,20 @@ export class LedgerRefactor1787900000000 implements MigrationInterface {
   }
 
   /**
-   * 回滚重建旧表结构（不恢复数据——本迁移的 up 已把旧数据删除，
-   * 这是「未上线可破坏性重构」的既定取舍）。
+   * 不提供回滚。
+   *
+   * 唯一有意义的 down 是把 `wallet` / `ledger` / `item_owned` / `item_def`
+   * 四张表重建出来，但**数据无法恢复**（up 已删），而且代码里早已没有任何实体、
+   * 服务或查询引用它们——重建出来的是四张永远没人读、也没人写的空表。
+   * 那种 down 给人「可以回滚」的错觉，实际回滚后应用起不来，比直接拒绝更危险。
+   *
+   * 需要回到重构前，正确做法是重建库并 checkout 到重构前的提交。
    */
-  public async down(q: QueryRunner): Promise<void> {
-    await q.query(`
-      CREATE TABLE "item_def" (
-        "id" BIGSERIAL NOT NULL, "key" character varying(48) NOT NULL,
-        "type" character varying(16) NOT NULL, "name" character varying(48) NOT NULL,
-        "slot" character varying(24), "price" integer NOT NULL DEFAULT 0,
-        "pool" character varying(16) NOT NULL DEFAULT 'game',
-        "comfort" integer NOT NULL DEFAULT 0, "grid_w" integer NOT NULL DEFAULT 1,
-        "grid_h" integer NOT NULL DEFAULT 1, "meta" jsonb NOT NULL DEFAULT '{}',
-        "enabled" boolean NOT NULL DEFAULT true, "sort_order" integer NOT NULL DEFAULT 0,
-        "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-        "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-        CONSTRAINT "PK_item_def" PRIMARY KEY ("id")
-      )
-    `);
-    await q.query(
-      `CREATE UNIQUE INDEX "uq_item_def_key" ON "item_def" ("key")`,
+  public down(): Promise<void> {
+    return Promise.reject(
+      new Error(
+        '账本重构不可回滚：旧表数据已删除，且代码已无任何消费方。请重建库并回退代码版本。',
+      ),
     );
-    await q.query(`
-      CREATE TABLE "item_owned" (
-        "id" BIGSERIAL NOT NULL, "user_id" bigint NOT NULL,
-        "item_def_id" bigint NOT NULL, "qty" integer NOT NULL DEFAULT 1,
-        "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-        CONSTRAINT "PK_item_owned" PRIMARY KEY ("id")
-      )
-    `);
-    await q.query(
-      `CREATE UNIQUE INDEX "uq_item_owned_user_item" ON "item_owned" ("user_id", "item_def_id")`,
-    );
-    await q.query(`
-      CREATE TABLE "wallet" (
-        "id" BIGSERIAL NOT NULL, "user_id" bigint NOT NULL,
-        "game_coin" bigint NOT NULL DEFAULT '0', "marketing_point" bigint NOT NULL DEFAULT '0',
-        "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-        "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-        CONSTRAINT "ck_wallet_non_negative" CHECK ("game_coin" >= 0 AND "marketing_point" >= 0),
-        CONSTRAINT "PK_wallet" PRIMARY KEY ("id")
-      )
-    `);
-    await q.query(
-      `CREATE UNIQUE INDEX "uq_wallet_user_id" ON "wallet" ("user_id")`,
-    );
-    await q.query(`
-      CREATE TABLE "ledger" (
-        "id" BIGSERIAL NOT NULL, "user_id" bigint NOT NULL,
-        "pool" character varying(16) NOT NULL, "delta" bigint NOT NULL,
-        "balance_after" bigint NOT NULL, "biz_id" character varying(128) NOT NULL,
-        "reason" character varying(32) NOT NULL, "ref_id" character varying(64),
-        "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-        CONSTRAINT "ck_ledger_delta_nonzero" CHECK ("delta" <> 0),
-        CONSTRAINT "ck_ledger_pool" CHECK ("pool" IN ('game','marketing')),
-        CONSTRAINT "PK_ledger" PRIMARY KEY ("id")
-      )
-    `);
-    await q.query(
-      `CREATE INDEX "idx_ledger_user_id_id" ON "ledger" ("user_id", "id")`,
-    );
-    await q.query(
-      `CREATE UNIQUE INDEX "uq_ledger_user_biz_pool" ON "ledger" ("user_id", "biz_id", "pool")`,
-    );
-
-    await q.query(`DROP INDEX "idx_home_layout_asset"`);
-    await q.query(`DELETE FROM "pet_equip"`);
-    await q.query(`DELETE FROM "home_layout"`);
-    await q.query(`ALTER TABLE "home_layout" DROP COLUMN "asset_code"`);
-    await q.query(
-      `ALTER TABLE "home_layout" ADD COLUMN "item_def_id" bigint NOT NULL`,
-    );
-    await q.query(`ALTER TABLE "pet_equip" DROP COLUMN "asset_code"`);
-    await q.query(
-      `ALTER TABLE "pet_equip" ADD COLUMN "item_def_id" bigint NOT NULL`,
-    );
-
-    await q.query(`DROP TABLE "asset_daily_stat"`);
-    await q.query(`DROP TABLE "trade_risk_daily"`);
-    await q.query(`DROP TABLE "market_bid"`);
-    await q.query(`DROP TABLE "market_listing"`);
-    await q.query(`DROP TABLE "item_instance_entry"`);
-    await q.query(`DROP TABLE "item_instance"`);
-    await q.query(`DROP TABLE "asset_lot"`);
-    await q.query(`DROP TABLE "asset_balance"`);
-    await q.query(`DROP TABLE "asset_entry"`);
-    await q.query(`DROP TABLE "asset_txn"`);
-    await q.query(`DROP TABLE "asset_def"`);
-    await q.query(`DROP TABLE "account"`);
   }
 }

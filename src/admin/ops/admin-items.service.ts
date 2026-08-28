@@ -7,7 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AssetDef, AssetMeta } from '../../entities/asset-def.entity';
 import { LedgerService } from '../../ledger/ledger.service';
-import { GAME_COIN, MARKETING_POINT } from '../../ledger/ledger.types';
+import { GAME_COIN } from '../../ledger/ledger.types';
 import { CreateItemDefDto, UpdateItemDefDto } from './dto/item-def.dto';
 
 /** 后台看到的资产定义视图。 */
@@ -18,7 +18,8 @@ export interface AdminAssetView {
   name: string;
   slot: string | null;
   price: number;
-  pool: string;
+  /** 计价货币资产 code（`game_coin` / `marketing_point`） */
+  priceAsset: string;
   comfort: number;
   enabled: boolean;
   sortOrder: number;
@@ -38,6 +39,12 @@ const KIND_OF_TYPE: Record<string, AssetDef['kind']> = {
   consumable: 'stackable',
   // Petpet 是收集品（有实例、可编号、可交易），与皮肤/配饰同构
   petpet: 'unique',
+  // 券按张数持有、张张等价，没有身份语义，所以是 stackable 而不是 unique。
+  // ⚠ 后台新建的券会是 `redeemable=false`（三个合规开关在本服务里硬编码），
+  // 也就是**不能核销**的普通道具。可核销的券必须由 `asset-seed` 播种或迁移插行，
+  // 理由与 `gacha_output` 一样：redeemable 决定它算不算待兑付负债，
+  // 这个决定不该由一次后台点击产生。
+  coupon: 'stackable',
 };
 
 /**
@@ -177,9 +184,7 @@ export class AdminItemsService {
     if ('type' in dto && dto.type) meta.itemType = dto.type;
     if (dto.slot !== undefined) meta.slot = dto.slot ?? null;
     if (dto.price !== undefined) meta.price = dto.price;
-    if (dto.pool !== undefined) {
-      meta.priceAsset = dto.pool === 'marketing' ? MARKETING_POINT : GAME_COIN;
-    }
+    if (dto.priceAsset !== undefined) meta.priceAsset = dto.priceAsset;
     if (dto.comfort !== undefined) meta.comfort = dto.comfort;
     if (dto.gridW !== undefined) meta.gridW = dto.gridW;
     if (dto.gridH !== undefined) meta.gridH = dto.gridH;
@@ -196,7 +201,7 @@ export class AdminItemsService {
       name: d.name,
       slot: meta.slot ?? null,
       price: Number(meta.price ?? 0),
-      pool: meta.priceAsset === MARKETING_POINT ? 'marketing' : 'game',
+      priceAsset: String(meta.priceAsset ?? GAME_COIN),
       comfort: Number(meta.comfort ?? 0),
       enabled: d.enabled,
       sortOrder: d.sortOrder,

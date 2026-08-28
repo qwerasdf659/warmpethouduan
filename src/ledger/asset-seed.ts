@@ -139,6 +139,20 @@ export const SEED_ASSETS: AssetSeed[] = [
   petpet('pp_fish', '小鱼', 1200, 71, { expGain: 0.1 }, 'rare'),
   petpet('pp_bug', '瓢虫', 1000, 72, { expGain: 0.06 }, 'uncommon'),
   petpet('pp_ghost', '小幽灵', 1600, 73, { moodDecay: -0.1 }, 'rare'),
+
+  // ---------------------------------------------------------------- 优惠券（stackable）
+  //
+  // 券是**满减券**而不是面值代金券，这是刻意的：带面值、可核销、可转让的凭证
+  // 容易被认定为单用途商业预付凭证，牵出备案与资金存管要求。满减
+  // （「满 50 减 5」）在定性上是折扣而不是储值。
+  //
+  // 三个开关的组合是这套设计的关键：
+  //  - `redeemable: true` ⇒ 数据库 CHECK（ck_asset_no_trade_redeem）强制
+  //    `tradable: false`，于是券天然不可赠送、不可挂单、不可回收，
+  //    「积分 → 券 → 卖给别人换币」这条变现链在库层就断了；
+  //  - `expireDays` ⇒ 直接接入现成的 `asset_lot` 批次过期与每日过期作业，
+  //    有效期不需要任何新代码，同时给待兑付负债封了顶。
+  discountCoupon('coupon_off5', '满 50 减 5 券', 5_000, 500, 90, 80),
 ];
 
 // ------------------------------------------------------------------ 构造助手
@@ -277,6 +291,45 @@ function consumable(
       price,
       priceAsset: GAME_COIN,
       comfort: 0,
+    },
+  };
+}
+
+/**
+ * 满减券。
+ *
+ * `price: 0` 是「不可在商店直接买」：券只能从兑换中心用营销积分换，
+ * 走商店买等于开了「游戏币 → 券 → 线下折扣」的通道，绕过营销积分这道闸。
+ *
+ * `redeemable: true` 会被 DB CHECK 反推成 `tradable: false`，这里显式写出来
+ * 是为了让读代码的人不必去查约束才知道券不可流转。
+ */
+function discountCoupon(
+  code: string,
+  name: string,
+  threshold: number,
+  deduct: number,
+  expireDays: number,
+  sortOrder: number,
+): AssetSeed {
+  return {
+    code,
+    kind: 'stackable',
+    name,
+    tradable: false,
+    redeemable: true,
+    expireDays,
+    sortOrder,
+    meta: {
+      itemType: 'coupon',
+      slot: null,
+      price: 0,
+      priceAsset: MARKETING_POINT,
+      comfort: 0,
+      /** 满减门槛（分）。满 `threshold` 才能用 */
+      couponThreshold: threshold,
+      /** 减免金额（分） */
+      couponDeduct: deduct,
     },
   };
 }

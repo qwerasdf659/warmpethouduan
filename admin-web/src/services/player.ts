@@ -6,6 +6,7 @@ export async function listPlayers(params: {
   page: number;
   pageSize: number;
   keyword?: string;
+  status?: 'active' | 'banned';
 }): Promise<Paged<PlayerView>> {
   return request('/admin/players', { method: 'GET', params });
 }
@@ -61,8 +62,8 @@ export async function adjustPet(
  */
 export async function grantItem(
   id: string,
-  payload: { itemKey: string; qty?: number; reason?: string },
-): Promise<{ itemKey: string; qty: number; granted: number }> {
+  payload: { assetCode: string; qty?: number; reason?: string },
+): Promise<{ assetCode: string; qty: number; granted: number }> {
   return request(`/admin/players/${id}/items/grant`, {
     method: 'POST',
     data: { bizId: newBizId(), ...payload },

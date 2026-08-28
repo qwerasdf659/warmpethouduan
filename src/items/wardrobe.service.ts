@@ -15,12 +15,14 @@ import { ItemsService } from './items.service';
 const WARDROBE_TYPES: ItemType[] = ['skin', 'accessory', 'petpet'];
 
 export interface WardrobeItemView {
-  key: string;
+  /** 资产 code（`asset_def.code`） */
+  assetCode: string;
   type: string;
   name: string;
   slot: string | null;
   price: number;
-  pool: string;
+  /** 计价货币资产 code（`game_coin` / `marketing_point`） */
+  priceAsset: string;
   owned: boolean;
   equipped: boolean;
   /** 可交易（前端据此显示挂单入口） */
@@ -32,7 +34,7 @@ export interface WardrobeItemView {
 export interface WardrobeView {
   petId: string | null;
   items: WardrobeItemView[];
-  /** slot -> itemKey */
+  /** slot -> assetCode */
   equipped: Record<string, string>;
 }
 
@@ -68,12 +70,12 @@ export class WardrobeService {
     return {
       petId: pet?.id ?? null,
       items: defs.map((d) => ({
-        key: d.code,
+        assetCode: d.code,
         type: d.itemType ?? '',
         name: d.name,
         slot: d.slot,
         price: d.price,
-        pool: d.priceAsset === 'marketing_point' ? 'marketing' : 'game',
+        priceAsset: d.priceAsset,
         // price=0 视为默认拥有（如原色皮肤、暖阳小屋背景）：它们不铸造实例，
         // 因此不能靠「有没有实例」判断，否则新玩家会发现自己连原色都没有
         owned: d.price === 0 || (owned.get(d.code) ?? 0) > 0,
@@ -85,17 +87,17 @@ export class WardrobeService {
     };
   }
 
-  buy(userId: string, itemKey: string, bizId: string) {
-    return this.items.buy(userId, itemKey, bizId);
+  buy(userId: string, assetCode: string, bizId: string) {
+    return this.items.buy(userId, assetCode, bizId);
   }
 
   /** 穿戴：校验拥有 + 归属，写 pet_equip(pet,slot)。 */
   async equip(
     userId: string,
-    itemKey: string,
+    assetCode: string,
     petId?: string,
   ): Promise<WardrobeView> {
-    const def = await this.items.getDefByKey(itemKey);
+    const def = await this.items.getDefByCode(assetCode);
     if (!def || !def.enabled) throw new NotFoundException('物品不存在或已下架');
     const slot = def.slot;
     if (!def.itemType || !WARDROBE_TYPES.includes(def.itemType) || !slot) {

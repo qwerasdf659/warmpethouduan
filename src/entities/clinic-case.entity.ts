@@ -3,8 +3,11 @@ import {
   CreateDateColumn,
   Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import { User } from './user.entity';
 
 export type ClinicCaseStatus = 'open' | 'answered' | 'expired';
 
@@ -27,6 +30,14 @@ export class ClinicCase {
 
   @Column({ name: 'user_id', type: 'bigint' })
   userId: string;
+
+  /**
+   * 关系只为声明外键而存在（不做 eager/join 查询）。
+   * 少了它，`migration:generate` 会认为库里那条外键是多余的并生成 DROP。
+   */
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'user_id' })
+  user?: User;
 
   /** 复用 pet.conditions 的病症目录。 */
   @Column({ name: 'condition_key', type: 'varchar', length: 32 })

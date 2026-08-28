@@ -1,4 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { MARKETING_POINT } from '../ledger/ledger.types';
 import { PromoService } from './promo.service';
 import type { ClockService } from '../common/clock/clock.service';
 import type { GameConfigService } from '../config/game-config.service';
@@ -25,7 +26,7 @@ function makeCode(over: Partial<PromoCode> = {}): PromoCode {
     id: '1',
     code: 'ABCDEF2345',
     batch: '测试批次',
-    pool: 'marketing',
+    assetCode: MARKETING_POINT,
     amount: 888,
     maxUses: 2,
     usedCount: 0,
@@ -127,7 +128,7 @@ describe('PromoService.redeem', () => {
     expect(economy.apply).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: '42',
-        pool: 'marketing',
+        assetCode: MARKETING_POINT,
         delta: 888,
         bizId: 'promo:1',
         reason: 'promo',
@@ -138,7 +139,11 @@ describe('PromoService.redeem', () => {
   it('同一玩家重复提交走幂等回放，不再占用次数', async () => {
     const { svc, mgr, economy } = setup({
       updateResult: [[{ id: '1' }], 1],
-      existing: { id: '7', pool: 'marketing', amount: 888 } as PromoRedemption,
+      existing: {
+        id: '7',
+        assetCode: MARKETING_POINT,
+        amount: 888,
+      } as PromoRedemption,
     });
 
     const res = await svc.redeem('42', 'ABCDEF2345');

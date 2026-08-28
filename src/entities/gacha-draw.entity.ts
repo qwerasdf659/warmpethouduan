@@ -20,7 +20,7 @@ export interface GachaPrize {
   entryKey: string;
   name: string;
   /** 产出的 `asset_def.code` */
-  itemKey: string;
+  assetCode: string;
   qty: number;
   /** true = 稀有档（触发保底计数重置），供前端做特效分级 */
   rare: boolean;
@@ -65,8 +65,9 @@ export class GachaDraw {
   @Column({ type: 'int' })
   cost: number;
 
-  @Column({ type: 'varchar', length: 16 })
-  pool: 'game' | 'marketing';
+  /** 本次抽奖扣费的货币资产 code。 */
+  @Column({ name: 'asset_code', type: 'varchar', length: 48 })
+  assetCode: string;
 
   @Column({ type: 'jsonb' })
   prizes: GachaPrize[];

@@ -17,8 +17,10 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { AuthUser } from '../auth/jwt-auth.guard';
 import { PlayerStatusGuard } from '../auth/player-status.guard';
 import { AddressService } from './address.service';
+import { CouponService } from './coupon.service';
 import { ExchangeService } from './exchange.service';
 import {
+  CouponCodeDto,
   CreateAddressDto,
   OrderQueryDto,
   RedeemDto,
@@ -29,7 +31,10 @@ import {
 @Controller('exchange')
 @UseGuards(JwtAuthGuard, PlayerStatusGuard)
 export class ExchangeController {
-  constructor(private readonly exchange: ExchangeService) {}
+  constructor(
+    private readonly exchange: ExchangeService,
+    private readonly coupon: CouponService,
+  ) {}
 
   @Get()
   list(@CurrentUser() user: AuthUser) {
@@ -51,6 +56,25 @@ export class ExchangeController {
       dto.bizId,
       dto.addressId,
     );
+  }
+
+  /** 我持有的满减券（按券种聚合）。 */
+  @Get('coupons')
+  coupons(@CurrentUser() user: AuthUser) {
+    return this.coupon.myCoupons(user.userId);
+  }
+
+  /**
+   * 出示核销码：**销毁一张券**换一枚 15 分钟有效的一次性码。
+   *
+   * 券在这一刻就离手了，出示后没去消费会浪费一张——这一点必须在前端明确提示，
+   * 否则会变成客诉。理由见 `CouponService` 的类注释。
+   */
+  @Post('coupons/code')
+  @Idempotent()
+  @UseInterceptors(IdempotencyInterceptor)
+  couponCode(@CurrentUser() user: AuthUser, @Body() dto: CouponCodeDto) {
+    return this.coupon.issueCode(user.userId, dto.bizId, dto.assetCode);
   }
 }
 

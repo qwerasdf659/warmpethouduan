@@ -28,7 +28,7 @@ const HOME_TYPES: ItemType[] = ['furniture'];
 
 export interface PlacedView {
   layoutId: string;
-  itemKey: string;
+  assetCode: string;
   name: string;
   comfort: number;
   posX: number;
@@ -44,10 +44,12 @@ export interface HomeView {
   /** 房间网格尺寸，摆放坐标必须落在其中 */
   grid: HomeGrid;
   items: {
-    key: string;
+    /** 资产 code（`asset_def.code`） */
+    assetCode: string;
     name: string;
     price: number;
-    pool: string;
+    /** 计价货币资产 code（`game_coin` / `marketing_point`） */
+    priceAsset: string;
     comfort: number;
     owned: number;
     placed: number;
@@ -107,10 +109,10 @@ export class HomeService {
       ),
       grid: await this.config.get('home.grid'),
       items: defs.map((d) => ({
-        key: d.code,
+        assetCode: d.code,
         name: d.name,
         price: d.price,
-        pool: d.priceAsset === 'marketing_point' ? 'marketing' : 'game',
+        priceAsset: d.priceAsset,
         comfort: d.comfort,
         owned: owned.get(d.code) ?? 0,
         placed: placedCount.get(d.code) ?? 0,
@@ -121,7 +123,7 @@ export class HomeService {
         const d = byCode.get(l.assetCode);
         return {
           layoutId: l.id,
-          itemKey: l.assetCode,
+          assetCode: l.assetCode,
           name: d?.name ?? '',
           comfort: d?.comfort ?? 0,
           posX: l.posX,
@@ -134,12 +136,12 @@ export class HomeService {
   }
 
   /** 购买家具（仅限 furniture 类型）。 */
-  async buy(userId: string, itemKey: string, bizId: string) {
-    const def = await this.items.getDefByKey(itemKey);
+  async buy(userId: string, assetCode: string, bizId: string) {
+    const def = await this.items.getDefByCode(assetCode);
     if (!def || def.itemType !== 'furniture') {
       throw new BadRequestException('该物品不是家具');
     }
-    return this.items.buy(userId, itemKey, bizId);
+    return this.items.buy(userId, assetCode, bizId);
   }
 
   /**
@@ -151,11 +153,11 @@ export class HomeService {
    */
   async place(
     userId: string,
-    itemKey: string,
+    assetCode: string,
     posX?: number,
     posY?: number,
   ): Promise<HomeView> {
-    const def = await this.items.getDefByKey(itemKey);
+    const def = await this.items.getDefByCode(assetCode);
     if (!def || def.itemType !== 'furniture') {
       throw new BadRequestException('该物品不是家具');
     }

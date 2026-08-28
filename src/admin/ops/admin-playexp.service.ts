@@ -7,6 +7,8 @@ import { MinigameSession } from '../../entities/minigame-session.entity';
 import { PetEgg } from '../../entities/pet-egg.entity';
 import { PvpMatch } from '../../entities/pvp-match.entity';
 import { PvpRank } from '../../entities/pvp-rank.entity';
+import { RaceRecord } from '../../entities/race-record.entity';
+import { QueryRaceRecordsDto } from './dto/gameplay-query.dto';
 
 interface Page {
   page: number;
@@ -29,7 +31,31 @@ export class AdminPlayExpService {
     private readonly cases: Repository<ClinicCase>,
     @InjectRepository(MinigameSession)
     private readonly sessions: Repository<MinigameSession>,
+    @InjectRepository(RaceRecord)
+    private readonly races: Repository<RaceRecord>,
   ) {}
+
+  /**
+   * 赛跑记录。
+   *
+   * 赛跑是两阶段的：start 落 pending（名次已算定），settle 才发奖。所以长期
+   * 停在 pending 的行就是「跑完没发奖」的掉单 —— 默认按 id 倒序，运营可以直接
+   * 用 status=pending 把它们捞出来核对。
+   */
+  async raceRecordList(q: QueryRaceRecordsDto) {
+    const qb = this.races
+      .createQueryBuilder('r')
+      .orderBy('r.id', 'DESC')
+      .skip((q.page - 1) * q.pageSize)
+      .take(q.pageSize);
+
+    if (q.userId) qb.andWhere('r.userId = :uid', { uid: q.userId });
+    if (q.status) qb.andWhere('r.status = :st', { st: q.status });
+    if (q.trackKey) qb.andWhere('r.trackKey = :tk', { tk: q.trackKey });
+
+    const [list, total] = await qb.getManyAndCount();
+    return { list, total };
+  }
 
   async eggList(q: Page) {
     const [list, total] = await this.eggs.findAndCount({

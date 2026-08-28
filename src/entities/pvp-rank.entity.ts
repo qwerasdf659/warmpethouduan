@@ -2,9 +2,12 @@ import {
   Column,
   Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
   PrimaryColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { User } from './user.entity';
 
 /**
  * 天梯积分（P4）。一个玩家一行（user_id 主键），赛季切换后 rank_point 由结算重置。
@@ -15,6 +18,14 @@ import {
 export class PvpRank {
   @PrimaryColumn({ name: 'user_id', type: 'bigint' })
   userId: string;
+
+  /**
+   * 关系只为声明外键而存在（不做 eager/join 查询）。
+   * 少了它，`migration:generate` 会认为库里那条外键是多余的并生成 DROP。
+   */
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'user_id' })
+  user?: User;
 
   @Column({ type: 'varchar', length: 16 })
   season: string;

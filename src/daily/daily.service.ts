@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import Redis from 'ioredis';
 import { Repository } from 'typeorm';
+import { GAME_COIN } from '../ledger/ledger.types';
 import { ClockService } from '../common/clock/clock.service';
 import { LockService } from '../common/lock/lock.service';
 import { businessDayKey, isConsecutiveDay } from '../common/time/business-day';
@@ -109,7 +110,7 @@ export class DailyService {
 
       const applied = await this.economy.apply({
         userId,
-        pool: 'game',
+        assetCode: GAME_COIN,
         delta: reward,
         bizId: `daily:checkin:${day}`,
         reason: 'daily',
@@ -165,7 +166,7 @@ export class DailyService {
 
       const applied = await this.economy.apply({
         userId,
-        pool: 'game',
+        assetCode: GAME_COIN,
         delta: cfg.coin,
         bizId: `daily:task:${day}:${taskKey}`,
         reason: 'daily',

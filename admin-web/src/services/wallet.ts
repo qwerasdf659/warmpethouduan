@@ -13,8 +13,7 @@ export async function listLedger(params: {
   page: number;
   pageSize: number;
   userId?: string;
-  pool?: 'game' | 'marketing';
-  /** 按具体资产筛（`asset_def.code`）。与 pool 同时给时本项胜出 */
+  /** 按资产筛（`asset_def.code`）。留空 = 全部资产 */
   assetCode?: string;
   reason?: string;
 }): Promise<Paged<LedgerEntry>> {
@@ -75,7 +74,7 @@ export async function reverseTxn(
  */
 export async function grantWalletBulk(payload: {
   userIds: string[];
-  pool: 'game' | 'marketing';
+  assetCode: string;
   direction: 'grant' | 'deduct';
   amount: number;
   reason?: string;
@@ -93,7 +92,7 @@ export async function grantWalletBulk(payload: {
 export async function grantWallet(
   id: string,
   payload: {
-    pool: 'game' | 'marketing';
+    assetCode: string;
     direction: 'grant' | 'deduct';
     amount: number;
     reason?: string;

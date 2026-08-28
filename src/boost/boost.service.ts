@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import Redis from 'ioredis';
+import { GAME_COIN } from '../ledger/ledger.types';
 import { ClockService } from '../common/clock/clock.service';
 import {
   businessDayKey,
@@ -58,7 +59,7 @@ export class BoostService {
 
     const applied = await this.economy.apply({
       userId,
-      pool: 'game',
+      assetCode: GAME_COIN,
       delta: cfg.coin,
       bizId: `ad:${bizId}`,
       reason: 'ad',
@@ -87,7 +88,7 @@ export class BoostService {
     const { cost } = await this.config.get('boost.speedup');
     const applied = await this.economy.apply({
       userId,
-      pool: 'game',
+      assetCode: GAME_COIN,
       delta: -cost,
       bizId: `speedup:${bizId}`,
       reason: 'boost',
@@ -106,7 +107,7 @@ export class BoostService {
     const { cost } = await this.config.get('boost.stamina_recover');
     const applied = await this.economy.apply({
       userId,
-      pool: 'game',
+      assetCode: GAME_COIN,
       delta: -cost,
       bizId: `stamina:${bizId}`,
       reason: 'boost',

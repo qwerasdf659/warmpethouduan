@@ -2,7 +2,7 @@ import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
 import { history, useLocation } from '@umijs/max';
 import { Button, message, Result } from 'antd';
 import AvatarDropdown from '@/components/AvatarDropdown';
-import { ROUTE_BASE, TOKEN_KEY, stripBase } from '@/constants';
+import { TOKEN_KEY, stripBase } from '@/constants';
 import { getProfile } from '@/services/auth';
 import { getTheme } from '@/services/theme';
 import type { AdminProfile, AdminThemeSetting } from '@/types';
@@ -23,12 +23,26 @@ interface InitialState {
 }
 
 /**
- * 应用启动：拉管理员档案（角色/权限/菜单）与后台外观主题。
+ * 渲染前先把外观主题取回来。
  *
- * 主题读接口不鉴权，所以登录页也一并套用运营配的配色，不会出现「登录页一个
- * 样、进去又一个样」。拉取失败时静默回落默认主题 —— 配色是观感问题，不该
- * 让它挡住登录。
+ * 必须放在 `render` 而不是 `getInitialState`：antd 插件的 ConfigProvider 是
+ * `rootContainer`，包在 initialState 的 Provider **外面**，它读主题的那一次
+ * （`useState` 初值）发生在 `getInitialState` 还没 resolve 的时候 —— 结果是
+ * 全局始终停在 .umirc.ts 里的静态默认色，运营改的配色只有侧边栏跟着变。
+ *
+ * 读接口不鉴权，所以登录页也一并套用运营配的配色。拉取失败静默回落默认值：
+ * 配色是观感问题，不该挡住登录。
  */
+export async function render(oldRender: () => void) {
+  try {
+    setBootTheme((await getTheme()).theme);
+  } catch {
+    // 保持代码内置默认主题
+  }
+  oldRender();
+}
+
+/** 应用启动：拉管理员档案（角色/权限/菜单）供 access 与 layout 使用。 */
 export async function getInitialState(): Promise<InitialState> {
   const fetchProfile = async (): Promise<AdminProfile | undefined> => {
     try {
@@ -38,14 +52,8 @@ export async function getInitialState(): Promise<InitialState> {
     }
   };
 
-  let theme = DEFAULT_THEME;
-  try {
-    theme = (await getTheme()).theme;
-  } catch {
-    // 保持默认主题
-  }
-  // 供 antd 运行时配置同步读取，避免首帧闪一下默认色
-  setBootTheme(theme);
+  // render() 已经取过，这里直接复用，不再发第二次请求
+  const theme = getBootTheme();
 
   if (stripBase(history.location.pathname) !== '/login') {
     const token = localStorage.getItem(TOKEN_KEY);

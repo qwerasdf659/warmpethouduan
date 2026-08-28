@@ -13,15 +13,22 @@ import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useAccess } from '@umijs/max';
 import { useEffect, useRef, useState } from 'react';
 import {
+  Badge,
   Button,
   Drawer,
   Empty,
   Popconfirm,
   Progress,
+  Skeleton,
   Space,
+  Tabs,
   Tag,
+  Tooltip,
+  Typography,
   message,
+  theme,
 } from 'antd';
+import { getPlayerDossier } from '@/services/gameplay';
 import {
   adjustPet,
   banPlayer,
@@ -33,11 +40,23 @@ import {
 } from '@/services/player';
 import { getPlayerWallet } from '@/services/wallet';
 import type {
+  PetExtraView,
   PetStateView,
   PlayerDetail,
+  PlayerDossier,
   PlayerView,
   WalletView,
 } from '@/types';
+
+const statusTag = (s: PlayerView['status']) =>
+  s === 'banned' ? (
+    <Badge status="error" text="已封禁" />
+  ) : (
+    <Badge status="success" text="正常" />
+  );
+
+const timeText = (v: string | null | undefined) =>
+  v ? new Date(v).toLocaleString('zh-CN') : '-';
 
 export default function PlayerPage() {
   const access = useAccess();
@@ -49,6 +68,7 @@ export default function PlayerPage() {
 
   const openDetail = async (id: string) => {
     setCurrentId(id);
+    setDetail(null);
     setOpen(true);
     setLoading(true);
     try {
@@ -62,13 +82,6 @@ export default function PlayerPage() {
     if (currentId) setDetail(await getPlayerDetail(currentId));
   };
 
-  const statusTag = (s: PlayerView['status']) =>
-    s === 'banned' ? (
-      <Tag color="red">已封禁</Tag>
-    ) : (
-      <Tag color="green">正常</Tag>
-    );
-
   const columns: ProColumns<PlayerView>[] = [
     {
       title: '关键词',
@@ -76,25 +89,47 @@ export default function PlayerPage() {
       hideInTable: true,
       fieldProps: { placeholder: '搜索 玩家ID / openid / unionid' },
     },
+    {
+      // 「列出所有封禁账号」是风控与申诉复核的日常动作，关键词搜不出来
+      title: '账号状态',
+      dataIndex: 'statusFilter',
+      hideInTable: true,
+      valueType: 'select',
+      valueEnum: {
+        active: { text: '正常' },
+        banned: { text: '已封禁' },
+      },
+    },
     { title: '玩家ID', dataIndex: 'id', hideInSearch: true, width: 90 },
     {
       title: 'openid',
       dataIndex: 'openid',
       hideInSearch: true,
       copyable: true,
+      ellipsis: true,
+      width: 240,
     },
     {
       title: 'unionid',
       dataIndex: 'unionid',
       hideInSearch: true,
-      render: (v) => (v as string) ?? '-',
+      ellipsis: true,
+      width: 240,
+      render: (_, r) => r.unionid ?? '-',
     },
     {
       title: '状态',
       dataIndex: 'status',
       hideInSearch: true,
-      width: 90,
+      width: 100,
       render: (_, r) => statusTag(r.status),
+    },
+    {
+      title: '最近活跃',
+      dataIndex: 'lastSeenAt',
+      hideInSearch: true,
+      valueType: 'dateTime',
+      width: 170,
     },
     {
       title: '注册时间',
@@ -106,7 +141,8 @@ export default function PlayerPage() {
     {
       title: '操作',
       valueType: 'option',
-      width: 160,
+      width: 180,
+      fixed: 'right',
       render: (_, record) => {
         const actions = [
           <a key="detail" onClick={() => openDetail(record.id)}>
@@ -125,7 +161,7 @@ export default function PlayerPage() {
                   tableRef.current?.reload();
                 }}
               >
-                <a style={{ color: '#52c41a' }}>解封</a>
+                <Typography.Link type="success">解封</Typography.Link>
               </Popconfirm>,
             );
           } else {
@@ -134,7 +170,7 @@ export default function PlayerPage() {
                 key="ban"
                 title="封禁玩家"
                 width={420}
-                trigger={<a style={{ color: '#ff4d4f' }}>封禁</a>}
+                trigger={<Typography.Link type="danger">封禁</Typography.Link>}
                 modalProps={{ destroyOnClose: true }}
                 onFinish={async (v: { reason?: string }) => {
                   await banPlayer(record.id, v.reason);
@@ -162,7 +198,7 @@ export default function PlayerPage() {
               trigger={<a>补发物品</a>}
               modalProps={{ destroyOnClose: true }}
               onFinish={async (v: {
-                itemKey: string;
+                assetCode: string;
                 qty?: number;
                 reason?: string;
               }) => {
@@ -170,13 +206,13 @@ export default function PlayerPage() {
                 // 幂等只到 24h 请求窗口，反馈里带上发放后的持有量，
                 // 让运营能自己确认是否已经发过，而不是不确定就再点一次
                 message.success(
-                  `已补发 ${res.granted} 件，${res.itemKey} 当前持有 ${res.qty} 件`,
+                  `已补发 ${res.granted} 件，${res.assetCode} 当前持有 ${res.qty} 件`,
                 );
                 return true;
               }}
             >
               <ProFormSelect
-                name="itemKey"
+                name="assetCode"
                 label="物品"
                 rules={[{ required: true, message: '请选择要补发的物品' }]}
                 showSearch
@@ -217,101 +253,494 @@ export default function PlayerPage() {
         rowKey="id"
         actionRef={tableRef}
         columns={columns}
+        headerTitle="玩家列表"
+        cardBordered
+        scroll={{ x: 'max-content' }}
         request={async (params) => {
+          const p = params as {
+            keyword?: string;
+            statusFilter?: 'active' | 'banned';
+          };
           const res = await listPlayers({
             page: params.current ?? 1,
             pageSize: params.pageSize ?? 20,
-            keyword: (params as any).keyword,
+            keyword: p.keyword,
+            status: p.statusFilter,
           });
           return { data: res.list, total: res.total, success: true };
         }}
-        pagination={{ pageSize: 20 }}
+        pagination={{
+          pageSize: 20,
+          showSizeChanger: true,
+          showTotal: (t) => `共 ${t.toLocaleString('zh-CN')} 条`,
+        }}
         search={{ labelWidth: 'auto' }}
       />
 
       <Drawer
         title="玩家详情"
-        width={560}
+        width={620}
         open={open}
+        destroyOnClose
         onClose={() => setOpen(false)}
         extra={
-          <Button size="small" onClick={() => setOpen(false)}>
-            关闭
-          </Button>
+          detail ? (
+            <Typography.Text type="secondary">
+              #{detail.player.id}
+            </Typography.Text>
+          ) : null
         }
       >
-        {detail ? (
-          <Space direction="vertical" style={{ width: '100%' }} size="large">
-            <ProDescriptions
-              title="账户"
-              column={1}
-              loading={loading}
-              dataSource={detail.player}
-              columns={[
-                { title: '玩家ID', dataIndex: 'id' },
-                { title: 'openid', dataIndex: 'openid', copyable: true },
-                {
-                  title: 'unionid',
-                  dataIndex: 'unionid',
-                  render: (v) => (v as string) ?? '-',
-                },
-                {
-                  title: '状态',
-                  dataIndex: 'status',
-                  render: () => statusTag(detail.player.status),
-                },
-                {
-                  title: '封禁原因',
-                  dataIndex: 'bannedReason',
-                  render: (v) => (v as string) ?? '-',
-                },
-                {
-                  title: '封禁时间',
-                  dataIndex: 'bannedAt',
-                  render: (v) =>
-                    v ? new Date(v as string).toLocaleString() : '-',
-                },
-                {
-                  title: '最近活跃',
-                  dataIndex: 'lastSeenAt',
-                  render: (v) =>
-                    v ? new Date(v as string).toLocaleString() : '-',
-                },
-                {
-                  title: '注册时间',
-                  dataIndex: 'createdAt',
-                  valueType: 'dateTime',
-                },
-              ]}
-            />
-            <WalletCard playerId={detail.player.id} />
-            {detail.pets.length > 0 ? (
-              detail.pets.map((pet) => (
-                <PetCard
-                  key={pet.id}
-                  playerId={detail.player.id}
-                  pet={pet}
-                  canWrite={access.canWritePet}
-                  onAdjusted={refreshDetail}
-                />
-              ))
-            ) : (
-              <Empty description="该玩家尚无宠物" />
-            )}
-          </Space>
+        {loading || !detail ? (
+          <Skeleton active paragraph={{ rows: 8 }} />
         ) : (
-          <Empty description="加载中…" />
+          <Tabs
+            defaultActiveKey="overview"
+            items={[
+              {
+                key: 'overview',
+                label: '概览',
+                children: (
+                  <OverviewTab
+                    detail={detail}
+                    canWritePet={access.canWritePet}
+                    onAdjusted={refreshDetail}
+                  />
+                ),
+              },
+              {
+                key: 'gameplay',
+                label: '玩法',
+                // 懒加载：这一屏要扫七张表，只有处理具体申诉时才会点开
+                children: <DossierTab playerId={detail.player.id} />,
+              },
+            ]}
+          />
         )}
       </Drawer>
     </PageContainer>
   );
 }
 
+/** 概览 Tab：账户 + 钱包 + 宠物，客服打开抽屉的第一屏。 */
+function OverviewTab({
+  detail,
+  canWritePet,
+  onAdjusted,
+}: {
+  detail: PlayerDetail;
+  canWritePet: boolean;
+  onAdjusted: () => void | Promise<void>;
+}) {
+  return (
+    <Space direction="vertical" style={{ width: '100%' }} size={24}>
+      <Section title="账户">
+        <ProDescriptions
+          column={2}
+          dataSource={detail.player}
+          columns={[
+            { title: '玩家ID', dataIndex: 'id' },
+            {
+              title: '状态',
+              dataIndex: 'status',
+              render: () => statusTag(detail.player.status),
+            },
+            {
+              title: 'openid',
+              dataIndex: 'openid',
+              copyable: true,
+              ellipsis: true,
+              span: 2,
+            },
+            {
+              title: 'unionid',
+              dataIndex: 'unionid',
+              ellipsis: true,
+              span: 2,
+              // render 的第一个参数是已渲染的 dom 而非原值，判空要看 entity
+              render: (_, r) => r.unionid ?? '-',
+            },
+            {
+              title: '注册时间',
+              dataIndex: 'createdAt',
+              valueType: 'dateTime',
+            },
+            {
+              title: '最近活跃',
+              dataIndex: 'lastSeenAt',
+              valueType: 'dateTime',
+            },
+            ...(detail.player.status === 'banned'
+              ? [
+                  {
+                    title: '封禁原因',
+                    dataIndex: 'bannedReason',
+                    span: 2,
+                    render: (_: React.ReactNode, r: PlayerView) =>
+                      r.bannedReason ?? '-',
+                  },
+                  {
+                    title: '封禁时间',
+                    dataIndex: 'bannedAt',
+                    valueType: 'dateTime',
+                  },
+                ]
+              : []),
+          ]}
+        />
+      </Section>
+
+      <WalletSection playerId={detail.player.id} />
+
+      <Section title={`宠物（${detail.pets.length}）`}>
+        {detail.pets.length ? (
+          <Space direction="vertical" style={{ width: '100%' }} size={12}>
+            {detail.pets.map((pet) => (
+              <PetCard
+                key={pet.id}
+                playerId={detail.player.id}
+                pet={pet}
+                canWrite={canWritePet}
+                onAdjusted={onAdjusted}
+              />
+            ))}
+          </Space>
+        ) : (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="该玩家尚无宠物"
+          />
+        )}
+      </Section>
+    </Space>
+  );
+}
+
+const INSTANCE_STATE: Record<string, { text: string; color: string }> = {
+  held: { text: '持有中', color: 'success' },
+  listed: { text: '挂售中', color: 'processing' },
+  escrowed: { text: '易货托管', color: 'warning' },
+  burned: { text: '已销毁', color: 'error' },
+};
+
 /**
- * 钱包余额卡片。单独取数而不并进玩家详情：钱包是经济域的读，
- * 权限也归 wallet:read —— 只有 player:read 的客服看不到金额。
+ * 玩法 Tab：把散在各玩法域、后台此前完全查不到的玩家态摊开。
+ *
+ * 单独一次请求且只在点开时才发：这一屏要扫七张表，而大多数工单只看概览。
  */
-function WalletCard({ playerId }: { playerId: string }) {
+function DossierTab({ playerId }: { playerId: string }) {
+  const [data, setData] = useState<PlayerDossier | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setFailed(false);
+    getPlayerDossier(playerId)
+      .then((d) => {
+        if (alive) setData(d);
+      })
+      .catch(() => {
+        if (alive) setFailed(true);
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [playerId]);
+
+  if (loading) return <Skeleton active paragraph={{ rows: 8 }} />;
+  if (failed || !data) {
+    return <Empty description="玩法档案读取失败" />;
+  }
+
+  return (
+    <Space direction="vertical" style={{ width: '100%' }} size={24}>
+      <Section title="签到与每日任务">
+        {data.daily ? (
+          <ProDescriptions
+            column={2}
+            dataSource={data.daily}
+            columns={[
+              {
+                title: '连续签到',
+                dataIndex: 'streak',
+                render: (_, r) => `${r.streak} 天`,
+              },
+              { title: '累计签到', dataIndex: 'totalCheckins' },
+              {
+                title: '最后签到日',
+                dataIndex: 'lastCheckinDay',
+                render: (_, r) => r.lastCheckinDay ?? '从未签到',
+              },
+              {
+                title: '任务日',
+                dataIndex: 'taskDay',
+                render: (_, r) => r.taskDay ?? '-',
+              },
+              {
+                title: '今日已领任务',
+                dataIndex: 'claimedTasks',
+                span: 2,
+                render: (_, r) =>
+                  r.claimedTasks?.length ? (
+                    <Space size={4} wrap>
+                      {r.claimedTasks.map((t) => (
+                        <Tag key={t}>{t}</Tag>
+                      ))}
+                    </Space>
+                  ) : (
+                    '未领取'
+                  ),
+              },
+            ]}
+          />
+        ) : (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="该玩家从未签到"
+          />
+        )}
+      </Section>
+
+      <Section title={`扭蛋保底（${data.gachaStates.length}）`}>
+        {data.gachaStates.length ? (
+          <Space direction="vertical" style={{ width: '100%' }} size={4}>
+            {data.gachaStates.map((s) => (
+              <div
+                key={s.id}
+                style={{ display: 'flex', justifyContent: 'space-between' }}
+              >
+                <Typography.Text>{s.poolKey}</Typography.Text>
+                <Typography.Text type="secondary">
+                  当前保底计数{' '}
+                  <Typography.Text strong>{s.pity}</Typography.Text>
+                  ，累计 {s.totalDraws} 抽
+                </Typography.Text>
+              </div>
+            ))}
+          </Space>
+        ) : (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="尚未参与扭蛋"
+          />
+        )}
+      </Section>
+
+      <Section title={`唯一物品（${data.instances.length}）`}>
+        {data.instances.length ? (
+          <Space size={4} wrap>
+            {data.instances.map((i) => {
+              const st = INSTANCE_STATE[i.state] ?? {
+                text: i.state,
+                color: 'default',
+              };
+              return (
+                <Tooltip
+                  key={i.id}
+                  title={`#${i.id}${i.serial ? ` · 编号 ${i.serial}` : ''} · 获得于 ${timeText(i.acquiredAt)}`}
+                >
+                  <Tag color={st.color}>
+                    {i.assetCode} · {st.text}
+                  </Tag>
+                </Tooltip>
+              );
+            })}
+          </Space>
+        ) : (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="没有唯一物品实例"
+          />
+        )}
+      </Section>
+
+      <Section title={`宠物病症 / 穿戴 / 技巧`}>
+        {data.petExtras.length ? (
+          <Space direction="vertical" style={{ width: '100%' }} size={12}>
+            {data.petExtras.map((e) => (
+              <PetExtraCard key={e.petId} extra={e} />
+            ))}
+          </Space>
+        ) : (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="该玩家尚无宠物"
+          />
+        )}
+      </Section>
+
+      <Section title={`图鉴已领取（${data.dexClaims.length}）`}>
+        {data.dexClaims.length ? (
+          <Space size={4} wrap>
+            {data.dexClaims.map((c) => (
+              <Tooltip key={c.id} title={timeText(c.createdAt)}>
+                <Tag>{c.entryKey}</Tag>
+              </Tooltip>
+            ))}
+          </Space>
+        ) : (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="尚未领取图鉴奖励"
+          />
+        )}
+      </Section>
+
+      <Section title={`收货地址（${data.addresses.length}）`}>
+        {data.addresses.length ? (
+          <Space direction="vertical" style={{ width: '100%' }} size={8}>
+            {data.addresses.map((a) => (
+              <div key={a.id}>
+                <Space size={6}>
+                  <Typography.Text strong>{a.receiver}</Typography.Text>
+                  <Typography.Text type="secondary">{a.phone}</Typography.Text>
+                  {a.isDefault ? <Tag color="processing">默认</Tag> : null}
+                </Space>
+                <div>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {a.region} {a.detail}
+                  </Typography.Text>
+                </div>
+              </div>
+            ))}
+          </Space>
+        ) : (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="未填写收货地址"
+          />
+        )}
+      </Section>
+    </Space>
+  );
+}
+
+/** 一只宠物的病症 / 穿戴 / 技巧。只列未治愈的病症，已治愈的是历史。 */
+function PetExtraCard({ extra }: { extra: PetExtraView }) {
+  const { token } = theme.useToken();
+  return (
+    <div
+      style={{
+        border: `1px solid ${token.colorBorderSecondary}`,
+        borderRadius: token.borderRadius,
+        padding: 12,
+      }}
+    >
+      <Typography.Text strong>宠物 #{extra.petId}</Typography.Text>
+      <div style={{ marginTop: 8 }}>
+        <ExtraRow label="病症">
+          {extra.conditions.length ? (
+            extra.conditions.map((c) => (
+              <Tooltip
+                key={c.conditionKey}
+                title={`起病于 ${timeText(c.since)}`}
+              >
+                <Tag color="error">{c.conditionKey}</Tag>
+              </Tooltip>
+            ))
+          ) : (
+            <Typography.Text type="secondary">健康</Typography.Text>
+          )}
+        </ExtraRow>
+        <ExtraRow label="穿戴">
+          {extra.equips.length ? (
+            extra.equips.map((e) => (
+              <Tag key={e.slot}>
+                {e.slot}: {e.assetCode}
+              </Tag>
+            ))
+          ) : (
+            <Typography.Text type="secondary">无</Typography.Text>
+          )}
+        </ExtraRow>
+        <ExtraRow label="技巧">
+          {extra.tricks.length ? (
+            extra.tricks.map((t) => (
+              <Tag key={t.trickKey}>
+                {t.trickKey} {t.proficiency}%
+              </Tag>
+            ))
+          ) : (
+            <Typography.Text type="secondary">未学习</Typography.Text>
+          )}
+        </ExtraRow>
+      </div>
+    </div>
+  );
+}
+
+function ExtraRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{ display: 'flex', gap: 12, marginBottom: 6 }}>
+      <Typography.Text
+        type="secondary"
+        style={{ fontSize: 12, width: 40, flexShrink: 0 }}
+      >
+        {label}
+      </Typography.Text>
+      <Space size={4} wrap style={{ flex: 1 }}>
+        {children}
+      </Space>
+    </div>
+  );
+}
+
+/** 抽屉里的分区标题：左侧一道主色竖条，把三块内容在视觉上切开。 */
+function Section({
+  title,
+  extra,
+  children,
+}: {
+  title: string;
+  extra?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const { token } = theme.useToken();
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 12,
+        }}
+      >
+        <Space size={8}>
+          <span
+            style={{
+              display: 'inline-block',
+              width: 3,
+              height: 14,
+              borderRadius: 2,
+              background: token.colorPrimary,
+            }}
+          />
+          <Typography.Text strong>{title}</Typography.Text>
+        </Space>
+        {extra}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * 钱包余额。单独取数而不并进玩家详情：钱包是经济域的读，权限归 wallet:read
+ * —— 只有 player:read 的客服看不到金额。
+ */
+function WalletSection({ playerId }: { playerId: string }) {
   const access = useAccess();
   const [wallet, setWallet] = useState<WalletView | null>(null);
   const [loading, setLoading] = useState(false);
@@ -339,28 +768,104 @@ function WalletCard({ playerId }: { playerId: string }) {
 
   if (!access.canReadWallet) return null;
 
-  /**
-   * 冻结部分单独展示。
-   *
-   * 交易上线后「有余额」不等于「能花」：挂单与出价会把可用余额转成冻结。
-   * 只显示可用余额的话，客服面对「我明明有 3000 币却买不了 1000 的东西」
-   * 这类工单会查不出原因 —— 那 3000 里有 2500 正锁在他自己的出价上。
-   */
-  const amount = (available?: number, frozen?: number) => {
-    if (failed) return '读取失败';
-    if (available === undefined) return '-';
-    return frozen ? `${available}（冻结 ${frozen}）` : String(available);
-  };
-
   return (
-    <ProDescriptions title="钱包" column={2} loading={loading}>
-      <ProDescriptions.Item label="游戏币">
-        {amount(wallet?.gameCoin, wallet?.gameCoinFrozen)}
-      </ProDescriptions.Item>
-      <ProDescriptions.Item label="营销积分">
-        {amount(wallet?.marketingPoint, wallet?.marketingPointFrozen)}
-      </ProDescriptions.Item>
-    </ProDescriptions>
+    <Section title="钱包">
+      {loading ? (
+        <Skeleton active paragraph={{ rows: 1 }} />
+      ) : (
+        <div style={{ display: 'flex', gap: 12 }}>
+          <BalanceTile
+            label="游戏币"
+            value={wallet?.gameCoin}
+            frozen={wallet?.gameCoinFrozen}
+            failed={failed}
+          />
+          <BalanceTile
+            label="营销积分"
+            value={wallet?.marketingPoint}
+            frozen={wallet?.marketingPointFrozen}
+            failed={failed}
+          />
+        </div>
+      )}
+    </Section>
+  );
+}
+
+/**
+ * 单种资产的余额块。
+ *
+ * 冻结部分单独一行：交易上线后「有余额」不等于「能花」，挂单与出价会把可用
+ * 余额转成冻结。只显示可用余额的话，客服面对「我明明有 3000 币却买不了 1000
+ * 的东西」这类工单会查不出原因 —— 那 3000 里有 2500 正锁在他自己的出价上。
+ */
+function BalanceTile({
+  label,
+  value,
+  frozen,
+  failed,
+}: {
+  label: string;
+  value?: number;
+  frozen?: number;
+  failed: boolean;
+}) {
+  const { token } = theme.useToken();
+  return (
+    <div
+      style={{
+        flex: 1,
+        padding: '12px 16px',
+        borderRadius: token.borderRadius,
+        background: token.colorFillQuaternary,
+      }}
+    >
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        {label}
+      </Typography.Text>
+      <div style={{ fontSize: 24, fontWeight: 600, lineHeight: 1.4 }}>
+        {failed ? (
+          <Typography.Text type="danger" style={{ fontSize: 14 }}>
+            读取失败
+          </Typography.Text>
+        ) : (
+          (value ?? 0).toLocaleString('zh-CN')
+        )}
+      </div>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        {frozen ? `冻结 ${frozen.toLocaleString('zh-CN')}` : '无冻结'}
+      </Typography.Text>
+    </div>
+  );
+}
+
+/** 状态条按水位染色：低于阈值要一眼能看出来，而不是让运营去读百分比数字。 */
+function statBarColor(
+  percent: number,
+  token: { colorError: string; colorWarning: string; colorPrimary: string },
+) {
+  if (percent < 25) return token.colorError;
+  if (percent < 50) return token.colorWarning;
+  return token.colorPrimary;
+}
+
+function StatBar({ label, percent }: { label: string; percent: number }) {
+  const { token } = theme.useToken();
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <Typography.Text
+        type="secondary"
+        style={{ fontSize: 12, width: 52, flexShrink: 0 }}
+      >
+        {label}
+      </Typography.Text>
+      <Progress
+        percent={percent}
+        size="small"
+        strokeColor={statBarColor(percent, token)}
+        style={{ flex: 1, marginBottom: 0 }}
+      />
+    </div>
   );
 }
 
@@ -376,40 +881,87 @@ function PetCard({
   canWrite: boolean;
   onAdjusted: () => void | Promise<void>;
 }) {
-  const title = (
-    <Space>
-      {pet.nickname || pet.species || '宠物'}
-      {pet.isActive ? <Tag color="blue">出战</Tag> : null}
-      <span style={{ color: '#999', fontWeight: 'normal' }}>#{pet.id}</span>
-    </Space>
-  );
+  const { token } = theme.useToken();
+  const name = pet.nickname || pet.species || '宠物';
 
   return (
-    <ProDescriptions title={title} column={1}>
-      <ProDescriptions.Item label="饱食度">
-        <Progress percent={pet.hunger} size="small" />
-      </ProDescriptions.Item>
-      <ProDescriptions.Item label="心情">
-        <Progress percent={pet.mood} size="small" />
-      </ProDescriptions.Item>
-      <ProDescriptions.Item label="清洁度">
-        <Progress percent={pet.cleanliness} size="small" />
-      </ProDescriptions.Item>
-      <ProDescriptions.Item label="体力">
-        {pet.stamina} / {pet.staminaMax}
-      </ProDescriptions.Item>
-      <ProDescriptions.Item label="亲密度">{pet.intimacy}</ProDescriptions.Item>
-      <ProDescriptions.Item label="等级 / 经验">
-        Lv.{pet.level}（{pet.exp}，本级 {pet.expIntoLevel}/
-        {pet.expIntoLevel + pet.expToNext}）
-      </ProDescriptions.Item>
-      <ProDescriptions.Item label="上次活跃">
-        {new Date(pet.lastSeenAt).toLocaleString()}
-      </ProDescriptions.Item>
+    <div
+      style={{
+        border: `1px solid ${token.colorBorderSecondary}`,
+        borderRadius: token.borderRadius,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 12,
+        }}
+      >
+        <Space size={10}>
+          {/* 没有宠物立绘资源，用首字兜底，至少让多只宠物之间有区分度 */}
+          <span
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: token.borderRadius,
+              background: token.colorPrimaryBg,
+              color: token.colorPrimary,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 600,
+            }}
+          >
+            {name.slice(0, 1)}
+          </span>
+          <Space size={6}>
+            <Typography.Text strong>{name}</Typography.Text>
+            {pet.isActive ? <Tag color="processing">出战</Tag> : null}
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              #{pet.id}
+            </Typography.Text>
+          </Space>
+        </Space>
+        <Tooltip title={`阶段 ${pet.stage}`}>
+          <Tag>Lv.{pet.level}</Tag>
+        </Tooltip>
+      </div>
+
+      <Space direction="vertical" style={{ width: '100%' }} size={6}>
+        <StatBar label="饱食度" percent={pet.hunger} />
+        <StatBar label="心情" percent={pet.mood} />
+        <StatBar label="清洁度" percent={pet.cleanliness} />
+      </Space>
+
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '4px 24px',
+          marginTop: 12,
+          paddingTop: 12,
+          borderTop: `1px solid ${token.colorBorderSecondary}`,
+        }}
+      >
+        <MiniStat label="体力" value={`${pet.stamina}/${pet.staminaMax}`} />
+        <MiniStat label="亲密度" value={pet.intimacy} />
+        <MiniStat
+          label="经验"
+          value={`${pet.expIntoLevel}/${pet.expIntoLevel + pet.expToNext}`}
+        />
+        {/* 赛跑属性：接口一直在返回，此前从未展示，调赛跑数值时要看 */}
+        <MiniStat label="速度" value={pet.speed} />
+        <MiniStat label="耐力" value={pet.endurance} />
+        <MiniStat label="上次活跃" value={timeText(pet.lastSeenAt)} />
+      </div>
+
       {canWrite ? (
-        <ProDescriptions.Item label="运营">
+        <div style={{ textAlign: 'right', marginTop: 12 }}>
           <ModalForm
-            title={`补偿调整 · ${pet.nickname || pet.species} #${pet.id}`}
+            title={`补偿调整 · ${name} #${pet.id}`}
             width={460}
             trigger={<Button size="small">补偿调整</Button>}
             modalProps={{ destroyOnClose: true }}
@@ -432,7 +984,7 @@ function PetCard({
                 if (nums[k] !== undefined && nums[k] !== null && nums[k] !== '')
                   payload[k] = Number(nums[k]);
               }
-              await adjustPet(playerId, payload as any);
+              await adjustPet(playerId, payload as never);
               message.success('已调整');
               await onAdjusted();
               return true;
@@ -464,8 +1016,19 @@ function PetCard({
               fieldProps={{ maxLength: 255, showCount: true }}
             />
           </ModalForm>
-        </ProDescriptions.Item>
+        </div>
       ) : null}
-    </ProDescriptions>
+    </div>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <Space size={6}>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        {label}
+      </Typography.Text>
+      <Typography.Text style={{ fontSize: 12 }}>{value}</Typography.Text>
+    </Space>
   );
 }

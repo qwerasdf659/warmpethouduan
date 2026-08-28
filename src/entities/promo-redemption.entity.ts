@@ -17,7 +17,7 @@ import { User } from './user.entity';
  * 并发下两个请求同时通过 COUNT 检查是必然会发生的，靠唯一索引让其中一个
  * 插入失败才是可靠做法。
  *
- * `pool` / `amount` 是**下单时快照**：码的面额后来被运营改了，也要能说清当时发了多少。
+ * `asset_code` / `amount` 是**下单时快照**：码的面额后来被运营改了，也要能说清当时发了多少。
  */
 @Entity('promo_redemption')
 @Index('uq_promo_redemption_code_user', ['codeId', 'userId'], { unique: true })
@@ -44,8 +44,9 @@ export class PromoRedemption {
   @Column({ type: 'varchar', length: 32 })
   code: string;
 
-  @Column({ type: 'varchar', length: 16 })
-  pool: 'game' | 'marketing';
+  /** 核销时的货币资产 code 快照。 */
+  @Column({ name: 'asset_code', type: 'varchar', length: 48 })
+  assetCode: string;
 
   @Column({ type: 'int' })
   amount: number;

@@ -3,8 +3,11 @@ import {
   CreateDateColumn,
   Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import { User } from './user.entity';
 
 export type EggStatus = 'incubating' | 'hatched' | 'cancelled';
 
@@ -23,6 +26,14 @@ export class PetEgg {
 
   @Column({ name: 'user_id', type: 'bigint' })
   userId: string;
+
+  /**
+   * 关系只为声明外键而存在（不做 eager/join 查询）。
+   * 少了它，`migration:generate` 会认为库里那条外键是多余的并生成 DROP。
+   */
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'user_id' })
+  user?: User;
 
   @Column({ name: 'parent_a_id', type: 'bigint' })
   parentAId: string;

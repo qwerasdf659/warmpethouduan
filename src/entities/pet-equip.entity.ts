@@ -7,6 +7,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { User } from './user.entity';
 import { Pet } from './pet.entity';
 
 /**
@@ -21,6 +22,14 @@ export class PetEquip {
 
   @Column({ name: 'user_id', type: 'bigint' })
   userId: string;
+
+  /**
+   * 关系只为声明外键而存在（不做 eager/join 查询）。
+   * 少了它，`migration:generate` 会认为库里那条外键是多余的并生成 DROP。
+   */
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'user_id' })
+  user?: User;
 
   @Column({ name: 'pet_id', type: 'bigint' })
   petId: string;

@@ -33,6 +33,20 @@ export interface AssetIssuanceSummary {
   net: number;
 }
 
+/** 一个批次（lot）的后台视图。批次是余额的分桶实现，承载 FIFO 消耗与过期。 */
+export interface AssetLotView {
+  id: string;
+  accountId: string;
+  /** 系统账户没有 user_id，这里为 null */
+  userId: string | null;
+  assetCode: string;
+  remaining: string;
+  frozen: string;
+  issuedTotal: string;
+  expiresAt: Date | null;
+  createdAt: Date;
+}
+
 /**
  * 后台钱包运营：全局流水查询 + 人工发币/扣币。
  * 所有余额变动一律委托 EconomyService.apply（DB 原子记账 + 持久幂等）。
@@ -132,10 +146,92 @@ export class AdminWalletService {
       page: q.page,
       pageSize: q.pageSize,
       userId: q.userId,
-      pool: q.pool,
       assetCode: q.assetCode,
       reason: q.reason,
     });
+  }
+
+  /**
+   * 资产批次（lot）清单。
+   *
+   * 余额只是批次的汇总，「哪一批、什么时候过期」只有这张表知道，而这个信息
+   * 事后补不回来。运营真正会用到它的两个场景：核对某玩家余额是怎么攒起来的，
+   * 以及在过期批处理跑之前先看一眼「这周要过期多少」。
+   */
+  async assetLots(q: {
+    page: number;
+    pageSize: number;
+    userId?: string;
+    assetCode?: string;
+    filter?: 'remaining' | 'expiring';
+  }): Promise<{ list: AssetLotView[]; total: number }> {
+    const params: unknown[] = [];
+    const clauses: string[] = [];
+    if (q.userId) {
+      params.push(q.userId);
+      clauses.push(`a."user_id" = $${params.length}`);
+    }
+    if (q.assetCode) {
+      params.push(q.assetCode);
+      clauses.push(`l."asset_code" = $${params.length}`);
+    }
+    if (q.filter === 'remaining') clauses.push(`l."remaining" > 0`);
+    if (q.filter === 'expiring') {
+      clauses.push(`l."expires_at" IS NOT NULL AND l."remaining" > 0`);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+
+    const total = Number(
+      rowsOf<{ c: string }>(
+        await this.ds.query(
+          `SELECT COUNT(*) AS c FROM "asset_lot" l
+             JOIN "account" a ON a."id" = l."account_id" ${where}`,
+          params,
+        ),
+      )[0]?.c ?? 0,
+    );
+
+    // 即将过期的排前面；没有过期时间的批次（永不过期）排最后
+    const order =
+      q.filter === 'expiring'
+        ? `ORDER BY l."expires_at" ASC`
+        : `ORDER BY l."expires_at" ASC NULLS LAST, l."id" DESC`;
+
+    params.push(q.pageSize, (q.page - 1) * q.pageSize);
+    const rows = rowsOf<{
+      id: string;
+      account_id: string;
+      user_id: string | null;
+      asset_code: string;
+      remaining: string;
+      frozen: string;
+      issued_total: string;
+      expires_at: Date | null;
+      created_at: Date;
+    }>(
+      await this.ds.query(
+        `SELECT l.*, a."user_id" FROM "asset_lot" l
+           JOIN "account" a ON a."id" = l."account_id"
+         ${where} ${order}
+          LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params,
+      ),
+    );
+
+    return {
+      list: rows.map((r) => ({
+        id: r.id,
+        accountId: r.account_id,
+        userId: r.user_id,
+        assetCode: r.asset_code,
+        remaining: r.remaining,
+        frozen: r.frozen,
+        issuedTotal: r.issued_total,
+        expiresAt: r.expires_at,
+        createdAt: r.created_at,
+      })),
+      total,
+    };
   }
 
   /** 读某玩家钱包（校验玩家存在）。 */
@@ -150,7 +246,7 @@ export class AdminWalletService {
     const delta = dto.direction === 'grant' ? dto.amount : -dto.amount;
     const result = await this.economy.adminGrant({
       userId,
-      pool: dto.pool,
+      assetCode: dto.assetCode,
       delta,
       bizId: dto.bizId,
       refId: null,
@@ -162,9 +258,9 @@ export class AdminWalletService {
    * 批量发币/扣币（活动补偿、批量发营销积分）。
    *
    * 三个刻意的设计：
-   *  - **每人一个派生 bizId**（`{bizId}:{userId}`）：整批用同一个 bizId 的话，
-   *    经济域的 `(user_id, biz_id, pool)` 唯一键只能保证「每人一次」，
-   *    但重试时无法区分是同一批还是新的一批。派生后重试整批完全幂等。
+   *  - **每人一个派生 bizId**（`{bizId}:{userId}`）：`asset_txn.biz_id` 是全局唯一的，
+   *    整批共用一个 bizId 时只有第一个玩家能记上账，其余全部命中幂等回放。
+   *    派生之后每人一张凭证，重试整批也完全幂等。
    *  - **单人失败不中断整批**：一个玩家不存在或扣减余额不足，不该让其余 199 人
    *    的发放回滚。逐个收集失败原因返回，运营据此补发。
    *  - **顺序执行而非 Promise.all**：批量发放不是延迟敏感操作，串行让 DB 压力可控，
@@ -187,7 +283,7 @@ export class AdminWalletService {
         await this.assertUserExists(userId);
         await this.economy.adminGrant({
           userId,
-          pool: dto.pool,
+          assetCode: dto.assetCode,
           delta,
           bizId: `${dto.bizId}:${userId}`,
           refId: null,

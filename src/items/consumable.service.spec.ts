@@ -11,7 +11,7 @@ import { ItemsService } from './items.service';
 
 interface ItemsStub {
   listDefsByType: jest.Mock;
-  getDefByKey: jest.Mock;
+  getDefByCode: jest.Mock;
   ownedMap: jest.Mock;
   buy: jest.Mock;
   consumeOwned: jest.Mock;
@@ -62,14 +62,14 @@ describe('ConsumableService', () => {
           defOf('cons_cake', 'consumable', 300),
         ]),
       ),
-      getDefByKey: jest.fn((key: string) =>
+      getDefByCode: jest.fn((key: string) =>
         Promise.resolve(defOf(key, 'consumable')),
       ),
       // 新模型下持有量按 assetCode 索引，不再是 item_def 的自增 id
       ownedMap: jest.fn(() => Promise.resolve(new Map([['cons_snack', 3]]))),
       buy: jest.fn(() =>
         Promise.resolve({
-          itemKey: 'cons_snack',
+          assetCode: 'cons_snack',
           qty: 4,
           wallet: {
             gameCoin: 900,
@@ -128,7 +128,7 @@ describe('ConsumableService', () => {
 
       expect(res.items).toHaveLength(2);
       expect(res.items[0]).toMatchObject({
-        key: 'cons_snack',
+        assetCode: 'cons_snack',
         price: 60,
         effect: { hunger: 25 },
         owned: 3,
@@ -151,7 +151,7 @@ describe('ConsumableService', () => {
     });
 
     it('物品不存在时拒绝', async () => {
-      items.getDefByKey.mockResolvedValue(null);
+      items.getDefByCode.mockResolvedValue(null);
       await expect(svc.buy('u1', 'nope', 1, 'b1')).rejects.toBeInstanceOf(
         NotFoundException,
       );
@@ -159,7 +159,7 @@ describe('ConsumableService', () => {
     });
 
     it('拒绝拿非消耗品走消耗品入口（否则能绕开换装的槽位校验）', async () => {
-      items.getDefByKey.mockResolvedValue(defOf('skin_snow', 'skin', 400));
+      items.getDefByCode.mockResolvedValue(defOf('skin_snow', 'skin', 400));
       await expect(svc.buy('u1', 'skin_snow', 1, 'b1')).rejects.toBeInstanceOf(
         NotFoundException,
       );
@@ -183,7 +183,7 @@ describe('ConsumableService', () => {
         undefined,
       );
       expect(res).toMatchObject({
-        itemKey: 'cons_snack',
+        assetCode: 'cons_snack',
         left: 2,
         effect: { hunger: 25 },
         levelUp: false,
@@ -213,7 +213,7 @@ describe('ConsumableService', () => {
     });
 
     it('配置里完全没有这一项时同样拒绝', async () => {
-      items.getDefByKey.mockResolvedValue(defOf('cons_ghost', 'consumable'));
+      items.getDefByCode.mockResolvedValue(defOf('cons_ghost', 'consumable'));
       await expect(svc.use('u1', 'cons_ghost', 'b1')).rejects.toBeInstanceOf(
         BadRequestException,
       );
@@ -221,7 +221,7 @@ describe('ConsumableService', () => {
     });
 
     it('非消耗品不能使用', async () => {
-      items.getDefByKey.mockResolvedValue(defOf('furn_rug', 'furniture'));
+      items.getDefByCode.mockResolvedValue(defOf('furn_rug', 'furniture'));
       await expect(svc.use('u1', 'furn_rug', 'b1')).rejects.toBeInstanceOf(
         NotFoundException,
       );

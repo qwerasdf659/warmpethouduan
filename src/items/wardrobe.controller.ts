@@ -33,12 +33,12 @@ export class WardrobeController {
   @Idempotent()
   @UseInterceptors(IdempotencyInterceptor)
   buy(@CurrentUser() user: AuthUser, @Body() dto: BuyItemDto) {
-    return this.wardrobe.buy(user.userId, dto.itemKey, dto.bizId);
+    return this.wardrobe.buy(user.userId, dto.assetCode, dto.bizId);
   }
 
   @Post('equip')
   equip(@CurrentUser() user: AuthUser, @Body() dto: EquipDto) {
-    return this.wardrobe.equip(user.userId, dto.itemKey, dto.petId);
+    return this.wardrobe.equip(user.userId, dto.assetCode, dto.petId);
   }
 
   @Post('unequip')

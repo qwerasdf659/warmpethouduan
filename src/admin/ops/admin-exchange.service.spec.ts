@@ -1,4 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { MARKETING_POINT } from '../../ledger/ledger.types';
 import { Repository } from 'typeorm';
 import { ClockService } from '../../common/clock/clock.service';
 import { EconomyService } from '../../economy/economy.service';
@@ -37,7 +38,7 @@ describe('AdminExchangeService 履约状态机', () => {
       itemName: '5 元代金券',
       itemType: 'virtual',
       cost: 500,
-      pool: 'marketing',
+      assetCode: MARKETING_POINT,
       status: 'pending',
       bizId: 'b1',
       address: null,
@@ -131,7 +132,7 @@ describe('AdminExchangeService 履约状态机', () => {
         expect.objectContaining({
           bizId: 'refund:o1',
           delta: 500,
-          pool: 'marketing',
+          assetCode: MARKETING_POINT,
         }),
       );
     });

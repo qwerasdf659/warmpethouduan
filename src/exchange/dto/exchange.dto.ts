@@ -28,6 +28,27 @@ export class RedeemDto {
 
 export class OrderQueryDto extends PaginationDto {}
 
+export class CouponCodeDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  bizId: string;
+
+  /** 要核销的券资产 code（`asset_def.code`）。 */
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(48)
+  assetCode: string;
+}
+
+/** 门店核销（后台侧）。码是 8 位去混淆字符的大写字母数字。 */
+export class CouponVerifyDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(16)
+  code: string;
+}
+
 export class CreateAddressDto {
   @IsString()
   @IsNotEmpty()

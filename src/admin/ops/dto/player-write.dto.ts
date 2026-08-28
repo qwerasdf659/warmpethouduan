@@ -34,7 +34,7 @@ export class UnbanPlayerDto {
  * 补发装扮/家具。
  *
  * 补偿此前只能发币，客服遇到「买了皮肤没到账」「活动承诺送限定款」只能折算成币，
- * 而限定外观没法用币买回来。这里按 `itemKey` 直接发放。
+ * 而限定外观没法用币买回来。这里按 `assetCode` 直接发放。
  */
 export class GrantItemDto {
   @IsString()
@@ -46,7 +46,7 @@ export class GrantItemDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(48)
-  itemKey: string;
+  assetCode: string;
 
   /** 发放数量。上限 99 是防手滑多打一个 0 就送出上万件。 */
   @IsOptional()

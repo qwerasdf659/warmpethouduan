@@ -20,14 +20,14 @@ export class HomeBuyDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(48)
-  itemKey: string;
+  assetCode: string;
 }
 
 export class PlaceFurnitureDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(48)
-  itemKey: string;
+  assetCode: string;
 
   /**
    * 网格坐标（0 起，左上角）。省略则由服务端自动找空位。

@@ -23,10 +23,22 @@ import { PvpMatch } from '../entities/pvp-match.entity';
 import { Clinic } from '../entities/clinic.entity';
 import { ClinicCase } from '../entities/clinic-case.entity';
 import { MinigameSession } from '../entities/minigame-session.entity';
+import { GachaDraw } from '../entities/gacha-draw.entity';
+import { TradeOffer } from '../entities/trade-offer.entity';
+import { TradeOfferItem } from '../entities/trade-offer-item.entity';
+import { RaceRecord } from '../entities/race-record.entity';
+import { GachaState } from '../entities/gacha-state.entity';
+import { Daily } from '../entities/daily.entity';
+import { DexClaim } from '../entities/dex-claim.entity';
+import { UserAddress } from '../entities/user-address.entity';
+import { PetCondition } from '../entities/pet-condition.entity';
+import { PetEquip } from '../entities/pet-equip.entity';
+import { PetTrick } from '../entities/pet-trick.entity';
 import { PetModule } from '../pet/pet.module';
 import { EconomyModule } from '../economy/economy.module';
 import { LedgerModule } from '../ledger/ledger.module';
 import { ItemsModule } from '../items/items.module';
+import { ExchangeModule } from '../exchange/exchange.module';
 import { MarketModule } from '../market/market.module';
 import { TradingModule } from '../trading/trading.module';
 import { AdminPlayersService } from './ops/admin-players.service';
@@ -71,6 +83,11 @@ import { AdminEventController } from '../event/admin-event.controller';
 import { AdminEventService } from '../event/admin-event.service';
 import { AdminPlayExpController } from './ops/admin-playexp.controller';
 import { AdminPlayExpService } from './ops/admin-playexp.service';
+import { AdminPlayerDossierService } from './ops/admin-player-dossier.service';
+import { AdminGachaService } from './ops/admin-gacha.service';
+import { AdminGachaController } from './ops/admin-gacha.controller';
+import { AdminTradeService } from './ops/admin-trade.service';
+import { AdminTradeController } from './ops/admin-trade.controller';
 
 /**
  * 后台管理域（RBAC + 审计）。与玩家端 AuthModule 完全隔离：
@@ -103,6 +120,17 @@ import { AdminPlayExpService } from './ops/admin-playexp.service';
       Clinic,
       ClinicCase,
       MinigameSession,
+      RaceRecord,
+      Daily,
+      DexClaim,
+      UserAddress,
+      GachaDraw,
+      GachaState,
+      TradeOffer,
+      TradeOfferItem,
+      PetCondition,
+      PetEquip,
+      PetTrick,
     ]),
     PetModule,
     // 后台补发装扮/家具走 ItemsService.grant
@@ -114,6 +142,9 @@ import { AdminPlayExpService } from './ops/admin-playexp.service';
     // MarketModule 虽然 import 了 TradingModule，但只 exports MarketService，
     // 不会把 TradeRiskService 透传出来，这里必须自己 import。
     TradingModule,
+    // 门店核销满减券复用玩家端的 CouponService（券的销毁已在出示码时完成，
+    // 后台这一步只是把一次性凭据兑掉），不另写一份
+    ExchangeModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -141,6 +172,8 @@ import { AdminPlayExpService } from './ops/admin-playexp.service';
     AdminPromoController,
     AdminEventController,
     AdminPlayExpController,
+    AdminGachaController,
+    AdminTradeController,
   ],
   providers: [
     AdminAuthService,
@@ -163,6 +196,9 @@ import { AdminPlayExpService } from './ops/admin-playexp.service';
     AdminPromoService,
     AdminEventService,
     AdminPlayExpService,
+    AdminPlayerDossierService,
+    AdminGachaService,
+    AdminTradeService,
     AdminBootstrapService,
     AdminJwtAuthGuard,
     RolesGuard,

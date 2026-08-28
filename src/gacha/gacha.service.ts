@@ -3,11 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { LockService } from '../common/lock/lock.service';
 import { GameConfigService } from '../config/game-config.service';
-import {
-  EconomyService,
-  POOL_ASSET,
-  WalletView,
-} from '../economy/economy.service';
+import { EconomyService, WalletView } from '../economy/economy.service';
 import { GachaDraw, GachaPrize } from '../entities/gacha-draw.entity';
 import { GachaState } from '../entities/gacha-state.entity';
 import { AssetCatalogService } from '../ledger/asset-catalog.service';
@@ -25,11 +21,12 @@ import {
 export interface GachaPoolView {
   key: string;
   name: string;
-  pool: string;
+  /** 扣费用的货币资产 code */
+  costAsset: string;
   cost: number;
   costTen: number;
   pity: number;
-  dupeItemKey: string | null;
+  dupeAssetCode: string | null;
   dupeQty: number;
   /** 我的保底进度（还差几抽必出稀有） */
   pityLeft: number | null;
@@ -93,11 +90,11 @@ export class GachaService {
       pools: pools.map((p) => ({
         key: p.key,
         name: p.name,
-        pool: p.pool,
+        costAsset: p.costAsset,
         cost: p.cost,
         costTen: p.costTen,
         pity: p.pity,
-        dupeItemKey: p.dupeItemKey,
+        dupeAssetCode: p.dupeAssetCode,
         dupeQty: p.dupeQty,
         pityLeft:
           p.pity > 0 ? Math.max(0, p.pity - (pityOf.get(p.key) ?? 0)) : null,
@@ -159,7 +156,9 @@ export class GachaService {
        */
       const wallet = await this.economy.getWallet(userId);
       const balance =
-        pool.pool === 'marketing' ? wallet.marketingPoint : wallet.gameCoin;
+        pool.costAsset === 'marketing'
+          ? wallet.marketingPoint
+          : wallet.gameCoin;
       if (balance < cost) throw new BadRequestException('余额不足');
 
       const state = await this.loadState(userId, poolKey);
@@ -175,7 +174,7 @@ export class GachaService {
           bizId,
           times,
           cost,
-          pool: pool.pool,
+          assetCode: pool.costAsset,
           prizes,
           delivered: false,
         }),
@@ -246,16 +245,16 @@ export class GachaService {
     const owned = await this.inventory.ownedMap(userId);
     const plannedThisRound = new Set<string>();
     const defs = await this.catalog.getManyByCode([
-      ...new Set(entries.map((e) => e.itemKey)),
+      ...new Set(entries.map((e) => e.assetCode)),
     ]);
     const prizes: GachaPrize[] = [];
 
     for (const e of entries) {
-      const def = defs.get(e.itemKey);
+      const def = defs.get(e.assetCode);
       if (!def) {
         // 配置指向了不存在的资产：折成补偿道具而不是让玩家白花钱（软失败不死亡）
         this.logger.warn(
-          `扭蛋档位 ${e.key} 指向的资产 ${e.itemKey} 不存在，已折算为补偿道具`,
+          `扭蛋档位 ${e.key} 指向的资产 ${e.assetCode} 不存在，已折算为补偿道具`,
         );
         prizes.push(this.dupePrize(e, pool));
         continue;
@@ -265,7 +264,7 @@ export class GachaService {
         def.kind === 'unique' &&
         !def.tradable &&
         ((owned.get(def.code) ?? 0) > 0 || plannedThisRound.has(def.code));
-      if (isDupe && pool.dupeItemKey && pool.dupeQty > 0) {
+      if (isDupe && pool.dupeAssetCode && pool.dupeQty > 0) {
         prizes.push(this.dupePrize(e, pool));
         continue;
       }
@@ -274,7 +273,7 @@ export class GachaService {
       prizes.push({
         entryKey: e.key,
         name: e.name,
-        itemKey: e.itemKey,
+        assetCode: e.assetCode,
         qty: e.qty,
         rare: e.rare,
         converted: false,
@@ -292,13 +291,13 @@ export class GachaService {
    */
   private async deliver(row: GachaDraw, pool: GachaPool): Promise<void> {
     const rewards: Reward[] = row.prizes.map((p) => ({
-      assetCode: p.itemKey,
+      assetCode: p.assetCode,
       count: p.qty,
     }));
 
     await this.reward.exchange(
       row.userId,
-      [{ assetCode: POOL_ASSET[pool.pool], count: row.cost }],
+      [{ assetCode: pool.costAsset, count: row.cost }],
       rewards,
       {
         reason: 'gacha',
@@ -336,8 +335,8 @@ export class GachaService {
     return {
       entryKey: e.key,
       name: e.name,
-      // 配置校验保证走到这里时 dupeItemKey 非空；兜底给零食免得产出为空
-      itemKey: pool.dupeItemKey ?? 'cons_snack',
+      // 配置校验保证走到这里时 dupeAssetCode 非空；兜底给零食免得产出为空
+      assetCode: pool.dupeAssetCode ?? 'cons_snack',
       qty: Math.max(1, pool.dupeQty),
       rare: e.rare,
       converted: true,

@@ -4,6 +4,7 @@ import { RequirePermissions } from '../decorators/permissions.decorator';
 import { AdminJwtAuthGuard } from '../guards/admin-jwt-auth.guard';
 import { RolesGuard } from '../guards/roles.guard';
 import { AdminPlayExpService } from './admin-playexp.service';
+import { QueryRaceRecordsDto } from './dto/gameplay-query.dto';
 
 /** 玩法扩展后台只读查询（P3/P4/P7/P11）。 */
 @Controller('admin')
@@ -60,5 +61,12 @@ export class AdminPlayExpController {
       page: q.page ?? 1,
       pageSize: q.pageSize ?? 20,
     });
+  }
+
+  /** 赛跑记录。status=pending 即「跑完未结算」的掉单清单。 */
+  @Get('race/records')
+  @RequirePermissions('race:read')
+  raceRecords(@Query() q: QueryRaceRecordsDto) {
+    return this.svc.raceRecordList(q);
   }
 }

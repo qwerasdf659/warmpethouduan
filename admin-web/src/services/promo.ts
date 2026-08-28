@@ -38,7 +38,7 @@ export async function listRedemptions(params: {
 /** 批量生码。返回的 `codes` 是明文全量，供运营导出去印物料。 */
 export async function createBatch(data: {
   batch: string;
-  pool: 'game' | 'marketing';
+  assetCode: string;
   amount: number;
   count: number;
   maxUses?: number;

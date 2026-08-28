@@ -35,7 +35,7 @@ export class ConsumableController {
   buy(@CurrentUser() user: AuthUser, @Body() dto: BuyConsumableDto) {
     return this.consumables.buy(
       user.userId,
-      dto.itemKey,
+      dto.assetCode,
       dto.qty ?? 1,
       dto.bizId,
     );
@@ -45,6 +45,11 @@ export class ConsumableController {
   @Idempotent()
   @UseInterceptors(IdempotencyInterceptor)
   use(@CurrentUser() user: AuthUser, @Body() dto: UseConsumableDto) {
-    return this.consumables.use(user.userId, dto.itemKey, dto.bizId, dto.petId);
+    return this.consumables.use(
+      user.userId,
+      dto.assetCode,
+      dto.bizId,
+      dto.petId,
+    );
   }
 }

@@ -53,7 +53,7 @@ export default function ThemePage() {
   const access = useAccess();
   const canWrite = access.canWriteConfig;
   const setAntdConfig = useAntdConfigSetter();
-  const { initialState, setInitialState } = useModel('@@initialState');
+  const { setInitialState } = useModel('@@initialState');
 
   /** 已落库的一份，用于「放弃改动」和判断有没有未保存内容 */
   const [saved, setSaved] = useState<AdminThemeSetting>(DEFAULT_THEME);

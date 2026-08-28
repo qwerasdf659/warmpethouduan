@@ -657,6 +657,17 @@ export class MarketService {
     return this.query.adminListings(opts);
   }
 
+  /** 后台竞价出价查询（含冻结凭证 id）。读路径同样委托给查询层。 */
+  adminBids(opts: {
+    page: number;
+    pageSize: number;
+    listingId?: string;
+    userId?: string;
+    status?: string;
+  }) {
+    return this.query.adminBids(opts);
+  }
+
   /**
    * 后台强制撤单（违规挂单下架 / 纠纷处理）。
    *

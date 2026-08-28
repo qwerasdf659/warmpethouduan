@@ -46,6 +46,13 @@ export const SEED_PERMISSIONS: SeedPermission[] = [
   { code: 'minigame:read', name: '查看小游戏对局', group: '运营' },
   { code: 'event:read', name: '查看限时活动', group: '营销' },
   { code: 'event:write', name: '管理限时活动', group: '营销' },
+  // ---- 玩法巡检（只读）
+  { code: 'race:read', name: '查看赛跑记录', group: '运营' },
+  // 与 pet:read 分开：扭蛋记录里能看出玩家的付费投入与保底进度，
+  // 属于付费数据，不该跟着「查看宠物」一起给出去
+  { code: 'gacha:read', name: '查看扭蛋记录/保底', group: '运营' },
+  // 与 market:read 分开：易货是玩家私下的双向交易，涉及双方资产明细
+  { code: 'trade:read', name: '查看易货报价', group: '经济' },
 ];
 
 export interface SeedMenu {
@@ -129,6 +136,17 @@ export const SEED_MENUS: SeedMenu[] = [
     sortOrder: 23,
   },
   {
+    key: 'economy.lots',
+    parentKey: 'economy',
+    name: '资产批次',
+    type: 'menu',
+    path: '/economy/lots',
+    component: './Economy/Lots',
+    icon: null,
+    permissionCode: 'wallet:read',
+    sortOrder: 24,
+  },
+  {
     key: 'market',
     parentKey: null,
     name: '交易市场',
@@ -160,6 +178,28 @@ export const SEED_MENUS: SeedMenu[] = [
     icon: null,
     permissionCode: 'market:read',
     sortOrder: 25,
+  },
+  {
+    key: 'market.bids',
+    parentKey: 'market',
+    name: '竞价出价',
+    type: 'menu',
+    path: '/market/bids',
+    component: './Market/Bids',
+    icon: null,
+    permissionCode: 'market:read',
+    sortOrder: 26,
+  },
+  {
+    key: 'market.trade',
+    parentKey: 'market',
+    name: '易货报价',
+    type: 'menu',
+    path: '/market/trade',
+    component: './Market/Trade',
+    icon: null,
+    permissionCode: 'trade:read',
+    sortOrder: 27,
   },
   {
     key: 'marketing',
@@ -249,6 +289,28 @@ export const SEED_MENUS: SeedMenu[] = [
     icon: null,
     permissionCode: 'minigame:read',
     sortOrder: 44,
+  },
+  {
+    key: 'pet.race',
+    parentKey: 'pet',
+    name: '赛跑记录',
+    type: 'menu',
+    path: '/pet/race',
+    component: './Pet/Race',
+    icon: null,
+    permissionCode: 'race:read',
+    sortOrder: 45,
+  },
+  {
+    key: 'pet.gacha',
+    parentKey: 'pet',
+    name: '扭蛋记录',
+    type: 'menu',
+    path: '/pet/gacha',
+    component: './Pet/Gacha',
+    icon: null,
+    permissionCode: 'gacha:read',
+    sortOrder: 46,
   },
   {
     key: 'config',

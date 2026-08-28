@@ -55,8 +55,9 @@ export class RedeemOrder {
   @Column({ type: 'int' })
   cost: number;
 
-  @Column({ type: 'varchar', length: 16 })
-  pool: 'game' | 'marketing';
+  /** 下单时的计价货币资产 code 快照。 */
+  @Column({ name: 'asset_code', type: 'varchar', length: 48 })
+  assetCode: string;
 
   /** pending 待处理 | shipped 已发货/已发放 | cancelled 已取消(已退款) */
   @Column({ type: 'varchar', length: 16, default: 'pending' })

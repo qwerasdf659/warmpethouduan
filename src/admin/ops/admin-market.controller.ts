@@ -16,6 +16,7 @@ import { RequirePermissions } from '../decorators/permissions.decorator';
 import { AdminJwtAuthGuard } from '../guards/admin-jwt-auth.guard';
 import { RolesGuard } from '../guards/roles.guard';
 import { AdminMarketService } from './admin-market.service';
+import { QueryMarketBidsDto } from './dto/gameplay-query.dto';
 import {
   ForceCancelListingDto,
   QueryListingsDto,
@@ -47,6 +48,13 @@ export class AdminMarketController {
   @RequirePermissions('market:read')
   listListings(@Query() q: QueryListingsDto) {
     return this.service.listListings(q);
+  }
+
+  /** 竞价出价（出价即冻结买家资金，强制撤单前应先看这里）。 */
+  @Get('bids')
+  @RequirePermissions('market:read')
+  listBids(@Query() q: QueryMarketBidsDto) {
+    return this.service.listBids(q);
   }
 
   /** R4 单向净流出清单（洗号 / 代练的人工复核线索）。 */

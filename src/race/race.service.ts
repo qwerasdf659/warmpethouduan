@@ -9,6 +9,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import Redis from 'ioredis';
 import { Repository } from 'typeorm';
+import { GAME_COIN } from '../ledger/ledger.types';
 import { AdTokenService } from '../boost/ad-token.service';
 import { ClockService } from '../common/clock/clock.service';
 import {
@@ -212,7 +213,7 @@ export class RaceService {
     if (track.entryCoin > 0) {
       await this.economy.apply({
         userId,
-        pool: 'game',
+        assetCode: GAME_COIN,
         delta: -track.entryCoin,
         bizId: `${bizId}:entry`,
         reason: 'race',
@@ -284,7 +285,7 @@ export class RaceService {
     if (race.rewardCoin > 0) {
       const applied = await this.economy.apply({
         userId,
-        pool: 'game',
+        assetCode: GAME_COIN,
         delta: race.rewardCoin,
         bizId: `race:${race.id}`,
         reason: 'race',
@@ -360,7 +361,7 @@ export class RaceService {
 
     const applied = await this.economy.apply({
       userId,
-      pool: 'game',
+      assetCode: GAME_COIN,
       delta: race.rewardCoin,
       bizId: `race:double:${race.id}`,
       reason: 'race',

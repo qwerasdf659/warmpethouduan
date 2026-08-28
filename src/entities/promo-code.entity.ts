@@ -21,7 +21,7 @@ import {
  */
 @Entity('promo_code')
 @Check('ck_promo_code_amount', `"amount" > 0`)
-@Check('ck_promo_code_pool', `"pool" IN ('game','marketing')`)
+@Check('ck_promo_code_asset', `"asset_code" IN ('game_coin','marketing_point')`)
 @Check('ck_promo_code_uses', `"max_uses" > 0 AND "used_count" >= 0`)
 @Index('idx_promo_code_batch', ['batch'])
 export class PromoCode {
@@ -40,10 +40,11 @@ export class PromoCode {
   @Column({ type: 'varchar', length: 48 })
   batch: string;
 
-  @Column({ type: 'varchar', length: 16 })
-  pool: 'game' | 'marketing';
+  /** 该批码发放的货币资产 code（`game_coin` / `marketing_point`）。 */
+  @Column({ name: 'asset_code', type: 'varchar', length: 48 })
+  assetCode: string;
 
-  /** 面额（单位为对应池的积分） */
+  /** 面额（单位为 `asset_code` 对应货币的最小单位） */
   @Column({ type: 'int' })
   amount: number;
 

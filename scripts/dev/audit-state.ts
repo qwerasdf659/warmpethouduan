@@ -105,6 +105,33 @@ async function auditConfig(
     bad(`${orphans.length} 个孤儿键（代码已无消费方）：${orphans.join(', ')}`);
   }
 
+  /*
+   * 校验不通过的行：比「值不同」严重一个量级。
+   *
+   * `GameConfigService` 取值时会按 schema 再验一遍，非法项**静默回退代码默认值**
+   * 并打一条 ERROR 日志。也就是说运营在后台看到的值和玩法实际生效的值不一致，
+   * 而唯一的线索是一条容易被刷掉的启动日志。
+   *
+   * 最常见的成因是**改了字段名却没迁移存量行**（比如把 `itemKey` 重命名成
+   * `assetCode`）：代码全绿、测试全绿、后台页面照常显示，只有这条日志会响。
+   */
+  const invalid = rows.filter((r) => {
+    const entry = CONFIG_REGISTRY[r.key as keyof typeof CONFIG_REGISTRY] as
+      | { schema?: { validate: (v: unknown) => { error?: unknown } } }
+      | undefined;
+    if (!entry?.schema) return false;
+    return entry.schema.validate(r.value).error !== undefined;
+  });
+  if (invalid.length === 0) {
+    ok('所有项通过 schema 校验（无静默回退）');
+  } else {
+    bad(
+      `${invalid.length} 项校验不通过、运行时会静默回退默认值：${invalid
+        .map((m) => m.key)
+        .join(', ')}`,
+    );
+  }
+
   // 注意别把这个数当成「运营改了多少」：迁移改存量行（如收藏品重标定价、
   // 给已有 key 补必填字段）同样会让 DB 值偏离代码默认值。这里只报告偏离事实，
   // 不猜偏离的来源 —— 要追来源看审计日志。

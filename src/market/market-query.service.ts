@@ -11,6 +11,21 @@ import { AssetCatalogService } from '../ledger/asset-catalog.service';
 import { GAME_COIN } from '../ledger/ledger.types';
 import type { ListingRow, ListingView } from './market.types';
 
+/** 后台出价视图：出价本身 + 出价人玩家 id + 所属挂单的标的与状态。 */
+export interface AdminBidView {
+  id: string;
+  listingId: string;
+  listingStatus: string | null;
+  assetCode: string | null;
+  bidderAccountId: string;
+  bidderUserId: string | null;
+  price: string;
+  status: string;
+  /** 冻结凭证 id：追「这笔钱现在还锁着吗」时按它去查 asset_txn */
+  freezeTxnId: string;
+  createdAt: Date;
+}
+
 /**
  * 市场的只读/展示层。
  *
@@ -85,6 +100,92 @@ export class MarketQueryService {
       ),
     );
     return { list: await Promise.all(rows.map((r) => this.toView(r))), total };
+  }
+
+  /**
+   * 后台竞价出价查询。
+   *
+   * 出价即冻结买家资金，所以「谁出了多少、还冻着没有」是资金问题而不只是行情。
+   * 强制撤单会解冻全部活跃出价 —— 在此之前后台看不到出价，运营等于闭眼点撤单，
+   * 事后也无法回答「我的钱怎么少了/什么时候退的」。
+   *
+   * 出价方存的是 `bidder_account_id`，玩家 id 要经 `account` 换算，因此这里必须
+   * join；顺带把 user_id 一起投影出去，免得前端拿到一串账户 id 无法与玩家对上。
+   */
+  async adminBids(opts: {
+    page: number;
+    pageSize: number;
+    listingId?: string;
+    userId?: string;
+    status?: string;
+  }): Promise<{ list: AdminBidView[]; total: number }> {
+    const params: unknown[] = [];
+    const clauses: string[] = [];
+    if (opts.listingId) {
+      params.push(opts.listingId);
+      clauses.push(`b."listing_id" = $${params.length}`);
+    }
+    if (opts.userId) {
+      params.push(opts.userId);
+      clauses.push(`a."user_id" = $${params.length}`);
+    }
+    if (opts.status) {
+      params.push(opts.status);
+      clauses.push(`b."status" = $${params.length}`);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+
+    const total = Number(
+      rowsOf<{ c: string }>(
+        await this.ds.query(
+          `SELECT COUNT(*) AS c FROM "market_bid" b
+             JOIN "account" a ON a."id" = b."bidder_account_id" ${where}`,
+          params,
+        ),
+      )[0]?.c ?? 0,
+    );
+
+    params.push(opts.pageSize, (opts.page - 1) * opts.pageSize);
+    const rows = rowsOf<{
+      id: string;
+      listing_id: string;
+      bidder_account_id: string;
+      user_id: string | null;
+      price: string;
+      status: string;
+      freeze_txn_id: string;
+      created_at: Date;
+      asset_code: string | null;
+      listing_status: string | null;
+    }>(
+      await this.ds.query(
+        `SELECT b.*, a."user_id",
+                l."asset_code", l."status" AS listing_status
+           FROM "market_bid" b
+           JOIN "account" a ON a."id" = b."bidder_account_id"
+           LEFT JOIN "market_listing" l ON l."id" = b."listing_id"
+         ${where}
+          ORDER BY b."id" DESC
+          LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params,
+      ),
+    );
+
+    return {
+      list: rows.map((r) => ({
+        id: r.id,
+        listingId: r.listing_id,
+        listingStatus: r.listing_status,
+        assetCode: r.asset_code,
+        bidderAccountId: r.bidder_account_id,
+        bidderUserId: r.user_id,
+        price: r.price,
+        status: r.status,
+        freezeTxnId: r.freeze_txn_id,
+        createdAt: r.created_at,
+      })),
+      total,
+    };
   }
 
   /** 市场浏览（在售且未过期的挂单，按价格升序）。 */

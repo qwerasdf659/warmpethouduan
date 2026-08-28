@@ -27,6 +27,7 @@ const typeText: Record<string, string> = {
   furniture: '家具',
   consumable: '消耗品',
   petpet: '宠物',
+  coupon: '优惠券',
 };
 
 export default function ItemsPage() {
@@ -62,6 +63,7 @@ export default function ItemsPage() {
         furniture: { text: '家具' },
         consumable: { text: '消耗品' },
         petpet: { text: '宠物' },
+        coupon: { text: '优惠券' },
       },
       render: (_, r) => <Tag>{typeText[r.type ?? ''] ?? r.type ?? '-'}</Tag>,
     },
@@ -86,10 +88,11 @@ export default function ItemsPage() {
     { title: '价格', dataIndex: 'price', width: 80, hideInSearch: true },
     {
       title: '池',
-      dataIndex: 'pool',
+      dataIndex: 'priceAsset',
       width: 90,
       hideInSearch: true,
-      render: (_, r) => (r.pool === 'game' ? '游戏币' : '营销积分'),
+      render: (_, r) =>
+        r.priceAsset === 'marketing_point' ? '营销积分' : '游戏币',
     },
     { title: '舒适度', dataIndex: 'comfort', width: 80, hideInSearch: true },
     {
@@ -220,7 +223,12 @@ function ItemForm({
                   ? JSON.stringify(initialValues.meta, null, 2)
                   : '',
             }
-          : { type: 'skin', pool: 'game', enabled: true, price: 0 }
+          : {
+              type: 'skin',
+              priceAsset: 'game_coin',
+              enabled: true,
+              price: 0,
+            }
       }
       onFinish={async (v: any) => {
         const { meta, ...rest } = v;
@@ -277,7 +285,7 @@ function ItemForm({
         rules={[{ required: true }]}
       />
       <ProFormSelect
-        name="pool"
+        name="priceAsset"
         label="积分池"
         options={[
           { label: '游戏币', value: 'game' },
@@ -300,7 +308,7 @@ function ItemForm({
         name="meta"
         label="meta (JSON)"
         fieldProps={{ rows: 6 }}
-        extra="itemType / slot / price / pool 请用上方表单项，在此填写 bonus / rarity 等无专属控件的键"
+        extra="itemType / slot / price / priceAsset 请用上方表单项，在此填写 bonus / rarity 等无专属控件的键"
       />
     </ModalForm>
   );

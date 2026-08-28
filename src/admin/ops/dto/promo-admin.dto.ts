@@ -1,4 +1,5 @@
 import { Type } from 'class-transformer';
+import { GAME_COIN, MARKETING_POINT } from '../../../ledger/ledger.types';
 import {
   IsBoolean,
   IsIn,
@@ -28,8 +29,8 @@ export class CreatePromoBatchDto {
   @MaxLength(48)
   batch: string;
 
-  @IsIn(['game', 'marketing'])
-  pool: 'game' | 'marketing';
+  @IsIn([GAME_COIN, MARKETING_POINT])
+  assetCode: string;
 
   @Type(() => Number)
   @IsInt()

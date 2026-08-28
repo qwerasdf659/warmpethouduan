@@ -1,4 +1,5 @@
 import { Type } from 'class-transformer';
+import { GAME_COIN, MARKETING_POINT } from '../../../ledger/ledger.types';
 import {
   Allow,
   IsBoolean,
@@ -24,8 +25,8 @@ export class CreateItemDefDto {
   @MaxLength(48)
   key: string;
 
-  @IsIn(['skin', 'accessory', 'furniture', 'consumable', 'petpet'])
-  type: 'skin' | 'accessory' | 'furniture' | 'consumable' | 'petpet';
+  @IsIn(['skin', 'accessory', 'furniture', 'consumable', 'petpet', 'coupon'])
+  type: 'skin' | 'accessory' | 'furniture' | 'consumable' | 'petpet' | 'coupon';
 
   @IsString()
   @IsNotEmpty()
@@ -42,8 +43,9 @@ export class CreateItemDefDto {
   @Min(0)
   price: number;
 
-  @IsIn(['game', 'marketing'])
-  pool: 'game' | 'marketing';
+  /** 计价货币资产 code。 */
+  @IsIn([GAME_COIN, MARKETING_POINT])
+  priceAsset: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -107,8 +109,8 @@ export class UpdateItemDefDto {
   price?: number;
 
   @IsOptional()
-  @IsIn(['game', 'marketing'])
-  pool?: 'game' | 'marketing';
+  @IsIn([GAME_COIN, MARKETING_POINT])
+  priceAsset?: string;
 
   @IsOptional()
   @Type(() => Number)

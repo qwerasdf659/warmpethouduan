@@ -134,7 +134,7 @@ export class ExchangeService {
 
       const applied = await this.economy.apply({
         userId,
-        pool: item.pool,
+        assetCode: item.costAsset,
         delta: -item.cost,
         bizId: `redeem:${bizId}`,
         reason: 'exchange',
@@ -151,7 +151,7 @@ export class ExchangeService {
             // 扣费已成功但没货了：原路退回（退款幂等，重试同 bizId 也不会退两次）
             await this.economy.apply({
               userId,
-              pool: item.pool,
+              assetCode: item.costAsset,
               delta: item.cost,
               bizId: `redeem-oversold:${bizId}`,
               reason: 'compensation',
@@ -169,7 +169,7 @@ export class ExchangeService {
             itemName: item.name,
             itemType: item.type,
             cost: item.cost,
-            pool: item.pool,
+            assetCode: item.costAsset,
             status: fulfilled ? 'shipped' : 'pending',
             shippedAt: fulfilled ? this.clock.now() : null,
             bizId,

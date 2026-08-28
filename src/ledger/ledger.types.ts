@@ -57,6 +57,10 @@ export const LEDGER_REASONS = [
   'event', // 限时活动奖励（P12）
   'training', // 技巧表演收益（P13）
   'trade_offer', // 双向易货冻结/成交
+  // 券核销：销毁一张券换取一个线下折扣凭据。这是待兑付负债的**减项**，
+  // 与过期销毁分开记，因为两者的业务含义相反（一个是兑付了，一个是作废了），
+  // 混在一起就没法回答「发出去的券真正被用掉了多少」
+  'coupon_redeem',
 ] as const;
 export type LedgerReason = (typeof LEDGER_REASONS)[number];
 

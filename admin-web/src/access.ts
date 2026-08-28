@@ -46,5 +46,10 @@ export default function access(
     canReadMinigame: has('minigame:read'),
     canReadEvent: has('event:read'),
     canWriteEvent: has('event:write'),
+    // 玩法巡检：赛跑与扭蛋、易货各自单列。扭蛋记录能看出玩家的付费投入，
+    // 易货涉及双方资产明细，都不该跟着「查看宠物 / 查看市场」一起给出去
+    canReadRace: has('race:read'),
+    canReadGacha: has('gacha:read'),
+    canReadTrade: has('trade:read'),
   };
 }

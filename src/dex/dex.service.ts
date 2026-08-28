@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { GAME_COIN } from '../ledger/ledger.types';
 import { LockService } from '../common/lock/lock.service';
 import { GameConfigService } from '../config/game-config.service';
 import { EconomyService } from '../economy/economy.service';
@@ -84,7 +85,7 @@ export class DexService {
 
       const applied = await this.economy.apply({
         userId,
-        pool: 'game',
+        assetCode: GAME_COIN,
         delta: entry.reward,
         bizId: `dex:${entryKey}`,
         reason: 'dex',

@@ -106,7 +106,7 @@ export class AdminExchangeService {
 
     await this.economy.apply({
       userId: order.userId,
-      pool: order.pool,
+      assetCode: order.assetCode,
       delta: order.cost,
       bizId: `refund:${order.id}`,
       reason: 'compensation',

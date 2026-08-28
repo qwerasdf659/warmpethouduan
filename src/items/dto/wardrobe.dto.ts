@@ -16,14 +16,14 @@ export class BuyItemDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(48)
-  itemKey: string;
+  assetCode: string;
 }
 
 export class EquipDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(48)
-  itemKey: string;
+  assetCode: string;
 
   @IsOptional()
   @IsNumberString()

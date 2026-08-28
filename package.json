@@ -37,6 +37,7 @@
     "wipe:pre-launch": "npm run script -- scripts/dev/wipe-pre-launch.ts",
     "prepare": "husky",
     "audit": "npm run script -- scripts/dev/audit-state.ts",
+    "schema:snapshot": "npm run script -- scripts/dev/schema-snapshot.ts",
     "smoke:ledger": "npm run script -- scripts/dev/ledger-smoke.ts",
     "archive:entries": "npm run script -- scripts/ops/archive-entries.ts",
     "admin:passwd": "npm run script -- scripts/dev/admin-passwd.ts"

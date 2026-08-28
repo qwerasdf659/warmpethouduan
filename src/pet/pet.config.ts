@@ -143,7 +143,7 @@ export interface PetConditionDef {
 
 export interface PetCureConfig {
   /** 用药治疗消耗的道具 code */
-  itemKey: string;
+  assetCode: string;
   /** 看诊治全部所需游戏币 */
   clinicCost: number;
   /** 自愈所需属性回升阈值 */
@@ -473,13 +473,13 @@ export const PET_CONFIG = {
     description:
       '治疗方式：用药消耗道具治一种，看诊花币治全部，自愈需属性回升并维持',
     default: {
-      itemKey: 'cons_medicine',
+      assetCode: 'cons_medicine',
       clinicCost: 200,
       selfHealStat: 60,
       selfHealHours: 6,
     },
     schema: strictObject({
-      itemKey: Joi.string().max(48).required(),
+      assetCode: Joi.string().max(48).required(),
       clinicCost: nonNegInt.max(1_000_000).required(),
       selfHealStat: nonNegInt.max(100).required(),
       selfHealHours: posInt.max(8760).required(),

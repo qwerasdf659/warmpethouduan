@@ -14,10 +14,12 @@ import { ItemsService } from './items.service';
 const CONSUMABLE_TYPE = 'consumable';
 
 export interface ConsumableItemView {
-  key: string;
+  /** 资产 code（`asset_def.code`） */
+  assetCode: string;
   name: string;
   price: number;
-  pool: string;
+  /** 计价货币资产 code（`game_coin` / `marketing_point`） */
+  priceAsset: string;
   effect: ConsumableEffect;
   /** 背包持有份数 */
   owned: number;
@@ -25,7 +27,7 @@ export interface ConsumableItemView {
 }
 
 export interface UseConsumableResult {
-  itemKey: string;
+  assetCode: string;
   /** 使用后剩余份数 */
   left: number;
   effect: ConsumableEffect;
@@ -66,10 +68,10 @@ export class ConsumableService {
 
     return {
       items: defs.map((d) => ({
-        key: d.code,
+        assetCode: d.code,
         name: d.name,
         price: d.price,
-        pool: d.priceAsset === 'marketing_point' ? 'marketing' : 'game',
+        priceAsset: d.priceAsset,
         effect: table[d.code] ?? {},
         owned: owned.get(d.code) ?? 0,
         sortOrder: d.sortOrder,
@@ -79,12 +81,12 @@ export class ConsumableService {
   }
 
   /** 购买消耗品（可一次买多份）。 */
-  async buy(userId: string, itemKey: string, qty: number, bizId: string) {
-    const def = await this.items.getDefByKey(itemKey);
+  async buy(userId: string, assetCode: string, qty: number, bizId: string) {
+    const def = await this.items.getDefByCode(assetCode);
     if (!def || def.itemType !== CONSUMABLE_TYPE) {
       throw new NotFoundException('消耗品不存在');
     }
-    return this.items.buy(userId, itemKey, bizId, qty);
+    return this.items.buy(userId, assetCode, bizId, qty);
   }
 
   /**
@@ -97,11 +99,11 @@ export class ConsumableService {
    */
   async use(
     userId: string,
-    itemKey: string,
+    assetCode: string,
     bizId: string,
     petId?: string,
   ): Promise<UseConsumableResult> {
-    const def = await this.items.getDefByKey(itemKey);
+    const def = await this.items.getDefByCode(assetCode);
     if (!def || def.itemType !== CONSUMABLE_TYPE) {
       throw new NotFoundException('消耗品不存在');
     }
@@ -119,7 +121,7 @@ export class ConsumableService {
 
       const applied = await this.pet.applyConsumable(userId, effect, petId);
       return {
-        itemKey: def.code,
+        assetCode: def.code,
         left,
         effect,
         pet: applied.pet,

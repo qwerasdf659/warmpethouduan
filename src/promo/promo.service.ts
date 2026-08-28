@@ -24,7 +24,7 @@ import { normalizeCode } from './promo.config';
 export interface PromoRedeemResult {
   code: string;
   batch: string;
-  pool: 'game' | 'marketing';
+  assetCode: string;
   amount: number;
   wallet: WalletView;
   /** true = 该码此前已由本人核销过，本次为幂等回放，未二次入账 */
@@ -166,7 +166,7 @@ export class PromoService {
           codeId: row.id,
           userId,
           code: row.code,
-          pool: row.pool,
+          assetCode: row.assetCode,
           amount: row.amount,
         });
         return await mgr.save(entity);
@@ -186,7 +186,7 @@ export class PromoService {
   ): Promise<PromoRedeemResult> {
     const applied = await this.economy.apply({
       userId,
-      pool: redemption.pool,
+      assetCode: redemption.assetCode,
       delta: redemption.amount,
       bizId: `promo:${row.id}`,
       reason: 'promo',
@@ -195,7 +195,7 @@ export class PromoService {
     return {
       code: row.code,
       batch: row.batch,
-      pool: redemption.pool,
+      assetCode: redemption.assetCode,
       amount: redemption.amount,
       wallet: applied.wallet,
       duplicated: replay || applied.duplicated,

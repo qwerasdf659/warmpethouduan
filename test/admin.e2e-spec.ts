@@ -1,4 +1,5 @@
 import request from 'supertest';
+import { GAME_COIN } from '../src/ledger/ledger.types';
 import { E2eApp } from './helpers/e2e-app';
 
 /**
@@ -163,7 +164,7 @@ describe('后台 (e2e)', () => {
         .set('Authorization', `Bearer ${token}`)
         .send({
           bizId: `e2e-denied-${Date.now()}`,
-          pool: 'game',
+          assetCode: GAME_COIN,
           direction: 'grant',
           amount: 10,
         })
@@ -246,7 +247,7 @@ describe('后台 (e2e)', () => {
       const bizId = `e2e-grant-${Date.now()}`;
       const payload = {
         bizId,
-        pool: 'game' as const,
+        assetCode: GAME_COIN,
         direction: 'grant' as const,
         amount: 120,
         reason: 'e2e',

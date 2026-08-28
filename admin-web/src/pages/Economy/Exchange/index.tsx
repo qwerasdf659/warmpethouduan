@@ -8,8 +8,13 @@ import {
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useAccess } from '@umijs/max';
 import { useRef } from 'react';
-import { Popconfirm, Tag, message } from 'antd';
-import { cancelOrder, listOrders, shipOrder } from '@/services/exchange';
+import { Button, Modal, Popconfirm, Tag, message } from 'antd';
+import {
+  cancelOrder,
+  listOrders,
+  shipOrder,
+  verifyCoupon,
+} from '@/services/exchange';
 import type { RedeemOrderView } from '@/types';
 
 const statusTag = (s: RedeemOrderView['status']) => {
@@ -153,7 +158,40 @@ export default function ExchangePage() {
   ];
 
   return (
-    <PageContainer header={{ title: '兑换管理' }}>
+    <PageContainer
+      header={{ title: '兑换管理' }}
+      content="实物订单在此发货；满减券由玩家在店内出示核销码，用右上角「核销满减券」兑掉。"
+      extra={
+        access.canWriteExchange ? (
+          <ModalForm<{ code: string }>
+            key="verify-coupon"
+            title="核销满减券"
+            width={420}
+            trigger={<Button type="primary">核销满减券</Button>}
+            modalProps={{ destroyOnClose: true }}
+            onFinish={async (v) => {
+              const res = await verifyCoupon(v.code.trim().toUpperCase());
+              // 金额单位是分，展示时换成元
+              Modal.success({
+                title: '核销成功',
+                content: `玩家 ${res.userId}：满 ${res.threshold / 100} 元减 ${
+                  res.deduct / 100
+                } 元`,
+              });
+              return true;
+            }}
+          >
+            <ProFormText
+              name="code"
+              label="核销码"
+              placeholder="玩家出示的 8 位核销码"
+              rules={[{ required: true, message: '请输入核销码' }]}
+              extra="券在玩家出示时即已销毁；同一码只能核销一次，重复提交会被拒绝。"
+            />
+          </ModalForm>
+        ) : null
+      }
+    >
       <ProTable<RedeemOrderView>
         rowKey="id"
         actionRef={tableRef}

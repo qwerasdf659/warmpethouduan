@@ -34,12 +34,12 @@ export class HomeController {
   @Idempotent()
   @UseInterceptors(IdempotencyInterceptor)
   buy(@CurrentUser() user: AuthUser, @Body() dto: HomeBuyDto) {
-    return this.home.buy(user.userId, dto.itemKey, dto.bizId);
+    return this.home.buy(user.userId, dto.assetCode, dto.bizId);
   }
 
   @Post('place')
   place(@CurrentUser() user: AuthUser, @Body() dto: PlaceFurnitureDto) {
-    return this.home.place(user.userId, dto.itemKey, dto.posX, dto.posY);
+    return this.home.place(user.userId, dto.assetCode, dto.posX, dto.posY);
   }
 
   @Post('remove')

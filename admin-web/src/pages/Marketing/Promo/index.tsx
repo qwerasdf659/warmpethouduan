@@ -96,10 +96,10 @@ function BatchTab() {
     { title: '批次', dataIndex: 'batch', copyable: true },
     {
       title: '账户池',
-      dataIndex: 'pool',
+      dataIndex: 'assetCode',
       width: 100,
       render: (_, r) =>
-        r.pool === 'marketing' ? (
+        r.assetCode === 'marketing_point' ? (
           <Tag color="gold">营销积分</Tag>
         ) : (
           <Tag color="blue">游戏币</Tag>
@@ -189,7 +189,7 @@ function BatchTab() {
               modalProps={{ destroyOnClose: true }}
               onFinish={async (v: {
                 batch: string;
-                pool: 'game' | 'marketing';
+                assetCode: string;
                 amount: number;
                 count: number;
                 maxUses?: number;
@@ -223,12 +223,12 @@ function BatchTab() {
                 extra="用于归档与整批停用，建议带日期与渠道，如 20260826-门店A"
               />
               <ProFormSelect
-                name="pool"
+                name="assetCode"
                 label="账户池"
                 initialValue="marketing"
                 options={[
-                  { label: '营销积分（可兑实物）', value: 'marketing' },
-                  { label: '游戏币', value: 'game' },
+                  { label: '营销积分（可兑实物）', value: 'marketing_point' },
+                  { label: '游戏币', value: 'game_coin' },
                 ]}
                 rules={[{ required: true }]}
               />
@@ -291,11 +291,11 @@ function CodeTab() {
     { title: '批次', dataIndex: 'batch', width: 160 },
     {
       title: '账户池',
-      dataIndex: 'pool',
+      dataIndex: 'assetCode',
       width: 100,
       hideInSearch: true,
       render: (_, r) =>
-        r.pool === 'marketing' ? (
+        r.assetCode === 'marketing_point' ? (
           <Tag color="gold">营销积分</Tag>
         ) : (
           <Tag color="blue">游戏币</Tag>
@@ -393,11 +393,11 @@ function RedemptionTab() {
     { title: '批次', dataIndex: 'batch', width: 160 },
     {
       title: '账户池',
-      dataIndex: 'pool',
+      dataIndex: 'assetCode',
       width: 100,
       hideInSearch: true,
       render: (_, r) =>
-        r.pool === 'marketing' ? (
+        r.assetCode === 'marketing_point' ? (
           <Tag color="gold">营销积分</Tag>
         ) : (
           <Tag color="blue">游戏币</Tag>

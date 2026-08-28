@@ -16,8 +16,9 @@ export type AssetKind = 'currency' | 'stackable' | 'unique';
 
 /** 表现层字段。账本层不解释它们，只有目录/商店/家园读。 */
 export interface AssetMeta {
-  /** 表现层分类：skin | accessory | furniture | consumable | petpet（货币无此字段） */
-  itemType?: 'skin' | 'accessory' | 'furniture' | 'consumable' | 'petpet';
+  /** 表现层分类：skin | accessory | furniture | consumable | petpet | coupon（货币无此字段） */
+  itemType?:
+    'skin' | 'accessory' | 'furniture' | 'consumable' | 'petpet' | 'coupon';
   /** 换装槽位（body/hat/neck/bg/pet） */
   slot?: string | null;
   /** 售价（0 = 免费/不可售） */

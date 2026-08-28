@@ -1,4 +1,5 @@
 import { SEED_ASSETS } from '../ledger/asset-seed';
+import { GAME_COIN } from '../ledger/ledger.types';
 import {
   GACHA_CONFIG,
   GachaEntry,
@@ -13,7 +14,7 @@ const entry = (key: string, weight: number, rare = false): GachaEntry => ({
   key,
   name: key,
   weight,
-  itemKey: 'cons_snack',
+  assetCode: 'cons_snack',
   qty: 1,
   rare,
 });
@@ -92,12 +93,12 @@ describe('gacha.config', () => {
     it('产出里没有任何货币（D1：扭蛋不产币）', () => {
       for (const p of pools) {
         for (const e of p.entries) {
-          expect(assetOf(e.itemKey)?.kind).not.toBe('currency');
+          expect(assetOf(e.assetCode)?.kind).not.toBe('currency');
         }
       }
       for (const p of pools) {
-        if (p.dupeItemKey) {
-          expect(assetOf(p.dupeItemKey)?.kind).not.toBe('currency');
+        if (p.dupeAssetCode) {
+          expect(assetOf(p.dupeAssetCode)?.kind).not.toBe('currency');
         }
       }
     });
@@ -109,7 +110,7 @@ describe('gacha.config', () => {
     it('所有产出物在资产表里都是不可交易的', () => {
       for (const p of pools) {
         for (const e of p.entries) {
-          const asset = assetOf(e.itemKey);
+          const asset = assetOf(e.assetCode);
           expect(asset).toBeDefined();
           expect(asset?.tradable).toBe(false);
           expect(asset?.gachaOutput).toBe(true);
@@ -123,7 +124,7 @@ describe('gacha.config', () => {
         // 产出按**商店售价**估值取上界：最乐观情况下（每一件都当原价买来的用）
         // 也不该回本
         const expected = p.entries.reduce((sum, e) => {
-          const price = assetOf(e.itemKey)?.meta?.price ?? 0;
+          const price = assetOf(e.assetCode)?.meta?.price ?? 0;
           return sum + (Number(price) * e.qty * e.weight) / total;
         }, 0);
         expect(expected).toBeLessThan(p.cost);
@@ -133,7 +134,7 @@ describe('gacha.config', () => {
     it('每一档都指向真实存在的资产，且件数为正', () => {
       for (const p of pools) {
         for (const e of p.entries) {
-          expect(assetOf(e.itemKey)).toBeDefined();
+          expect(assetOf(e.assetCode)).toBeDefined();
           expect(e.qty).toBeGreaterThan(0);
         }
       }
@@ -154,11 +155,11 @@ describe('gacha.config', () => {
     const base = {
       key: 'p',
       name: 'p',
-      pool: 'game',
+      costAsset: GAME_COIN,
       cost: 100,
       costTen: 900,
       pity: 10,
-      dupeItemKey: 'cons_snack',
+      dupeAssetCode: 'cons_snack',
       dupeQty: 2,
     };
 
@@ -172,9 +173,11 @@ describe('gacha.config', () => {
       ).toBeDefined();
     });
 
-    it('拒绝没有 itemKey 的档位', () => {
+    it('拒绝没有 assetCode 的档位', () => {
       expect(
-        validate([{ ...base, entries: [{ ...entry('a', 1), itemKey: null }] }]),
+        validate([
+          { ...base, entries: [{ ...entry('a', 1), assetCode: null }] },
+        ]),
       ).toBeDefined();
     });
 
@@ -184,10 +187,15 @@ describe('gacha.config', () => {
       ).toBeDefined();
     });
 
-    it('允许 dupeItemKey=null（不做重复补偿）', () => {
+    it('允许 dupeAssetCode=null（不做重复补偿）', () => {
       expect(
         validate([
-          { ...base, dupeItemKey: null, dupeQty: 0, entries: [entry('a', 1)] },
+          {
+            ...base,
+            dupeAssetCode: null,
+            dupeQty: 0,
+            entries: [entry('a', 1)],
+          },
         ]),
       ).toBeUndefined();
     });

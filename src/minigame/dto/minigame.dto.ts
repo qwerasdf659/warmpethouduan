@@ -1,37 +1,12 @@
 import { Type } from 'class-transformer';
 import {
-  ArrayMaxSize,
-  IsArray,
+  IsInt,
   IsNotEmpty,
-  IsNumber,
   IsString,
+  Max,
   MaxLength,
-  ValidateNested,
+  Min,
 } from 'class-validator';
-
-/**
- * 单局操作数硬上限。
- *
- * 与 `minigame.session.maxActionsPerSession` 的默认值保持一致，但这里必须是编译期
- * 常量（装饰器求值早于任何配置读取）。运营调小配置时由服务层按实际配置再卡一道；
- * 这里只作 DoS 面的最外层兜底，防止一个请求体就把内存/CPU 拖垮。
- */
-const MAX_ACTIONS = 2000;
-
-/**
- * 一次玩家操作。字段是通用占位（`t` 时刻、`x` 位置/输入），
- * 具体语义由各小游戏的回放算分器解释——服务端只按 seed + 操作序列重算分数，
- * 客户端上报的分数一律不采信。
- */
-export class MinigameActionDto {
-  @Type(() => Number)
-  @IsNumber()
-  t: number;
-
-  @Type(() => Number)
-  @IsNumber()
-  x: number;
-}
 
 export class MinigameStartDto {
   @IsString()
@@ -50,6 +25,32 @@ export class MinigameStartDto {
   gameKey: string;
 }
 
+/**
+ * 翻一张牌。
+ *
+ * 只有牌位下标一个入参——过程数据全部由服务端记账，客户端没有可上报的东西。
+ * 上限 63 对齐 `minigame.games[].pairs` 的配置上限（32 对 = 64 张牌）；
+ * 真正的越界判定在服务层按当局实际牌位数做，这里只挡明显的垃圾请求。
+ */
+export class MinigameFlipDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(32)
+  sessionId: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(63)
+  index: number;
+}
+
+/**
+ * 结算。
+ *
+ * **不收任何过程数据**：分数完全由服务端记录的对局进度派生。
+ * `bizId` 只用于请求级幂等（弱网重试），真正的持久幂等键是对局 id。
+ */
 export class MinigameSettleDto {
   @IsString()
   @IsNotEmpty()
@@ -60,10 +61,4 @@ export class MinigameSettleDto {
   @IsNotEmpty()
   @MaxLength(32)
   sessionId: string;
-
-  @IsArray()
-  @ArrayMaxSize(MAX_ACTIONS)
-  @ValidateNested({ each: true })
-  @Type(() => MinigameActionDto)
-  actions: MinigameActionDto[];
 }
